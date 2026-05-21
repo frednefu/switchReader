@@ -135,6 +135,32 @@ async def _snmp_walk(slim, ip, community, oid):
 
 
 # ============================================================
+# 工具
+# ============================================================
+
+import re
+
+_CTRL_CHAR_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+
+def _safe_str(value):
+    """将 SNMP 返回值转为安全字符串，移除 Excel 不接受的非法字符。
+    - pysnmp 的 IpAddress/OctetString 会正确转字符串
+    - 但如果出现裸 bytes，则转为十六进制表示
+    """
+    if value is None:
+        return ''
+    if isinstance(value, bytes):
+        # 裸字节：尝试解码，失败则转十六进制
+        try:
+            s = value.decode('ascii')
+        except UnicodeDecodeError:
+            return ':'.join(f'{b:02x}' for b in value)
+    else:
+        s = str(value)
+    return _CTRL_CHAR_RE.sub('', s)
+
+
+# ============================================================
 # 索引 / 值解析
 # ============================================================
 
@@ -224,11 +250,11 @@ async def _build_ifindex_names(slim, ip, community):
     ifindex_to_name = {}
     for oid_str, val in (await _snmp_walk(slim, ip, community, OID_IF_NAME)).items():
         ifidx = oid_str.rsplit('.', 1)[-1]
-        ifindex_to_name[ifidx] = str(val)
+        ifindex_to_name[ifidx] = _safe_str(val)
     if not ifindex_to_name:
         for oid_str, val in (await _snmp_walk(slim, ip, community, OID_IF_DESCR)).items():
             ifidx = oid_str.rsplit('.', 1)[-1]
-            ifindex_to_name[ifidx] = str(val)
+            ifindex_to_name[ifidx] = _safe_str(val)
     return ifindex_to_name
 
 
@@ -238,7 +264,7 @@ async def _build_bridge_port_map(slim, ip, community, ifindex_names):
     bridge_to_ifindex = {}
     for oid_str, val in (await _snmp_walk(slim, ip, community, OID_BRIDGE_PORT_IFINDEX)).items():
         bridge_port = oid_str.rsplit('.', 1)[-1]
-        bridge_to_ifindex[bridge_port] = str(val)
+        bridge_to_ifindex[bridge_port] = _safe_str(val)
 
     port_map = {}
     for bp, ifidx in bridge_to_ifindex.items():
@@ -269,7 +295,7 @@ async def _get_fdb_standard(slim, ip, community):
         vlan, mac = _parse_standard_fdb_index(oid_str, fdb_oid)
         if mac is None:
             continue
-        bridge_port = str(val)
+        bridge_port = _safe_str(val)
         port_name = bridge_port_map.get(bridge_port, f"Port{bridge_port}")
         fdb[mac] = {"vlan": vlan, "物理端口": port_name}
     return fdb
@@ -289,7 +315,7 @@ async def _get_fdb_huawei(slim, ip, community):
         vlan_id, mac = _parse_hw_fdb_index(oid_str, OID_HW_L2MAC_IFINDEX)
         if mac is None:
             continue
-        ifidx = str(val)
+        ifidx = _safe_str(val)
 
         vlan_type_tag = ''
         for vt_oid, vt_val in vlan_type_data.items():
@@ -436,23 +462,23 @@ async def _get_route_table(slim, ip, community):
 
     routes = []
     for oid_str, dest_val in dest_raw.items():
-        net = str(dest_val)
+        net = _safe_str(dest_val)
         idx = _route_oid_index_to_net(oid_str, OID_ROUTE_DEST)
         if idx is None:
             continue
 
         mask_oid = f'{OID_ROUTE_MASK}.{idx}'
         mask_val = mask_raw.get(mask_oid)
-        mask_str = str(mask_val) if mask_val is not None else ''
+        mask_str = _safe_str(mask_val) if mask_val is not None else ''
         cidr = _subnet_mask_to_cidr(mask_str) if mask_str else None
 
         nexthop_oid = f'{OID_ROUTE_NEXTHOP}.{idx}'
         nexthop_val = nexthop_raw.get(nexthop_oid)
-        nexthop_str = str(nexthop_val) if nexthop_val is not None else ''
+        nexthop_str = _safe_str(nexthop_val) if nexthop_val is not None else ''
 
         ifindex_oid = f'{OID_ROUTE_IFINDEX}.{idx}'
         ifidx_val = ifindex_raw.get(ifindex_oid)
-        iface = ifindex_names.get(str(ifidx_val), '') if ifidx_val is not None else ''
+        iface = ifindex_names.get(_safe_str(ifidx_val), '') if ifidx_val is not None else ''
 
         type_oid = f'{OID_ROUTE_TYPE}.{idx}'
         type_val = type_raw.get(type_oid)
