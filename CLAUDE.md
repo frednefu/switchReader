@@ -79,6 +79,14 @@ cp switchReader/config.example.json switchReader/config.json
 | 桥端口→ifIndex | `1.3.6.1.2.1.17.1.4.1.2` | dot1dBasePortIfIndex |
 | 接口名称 | `1.3.6.1.2.1.31.1.1.1.1` | ifName（优先） |
 | 接口描述 | `1.3.6.1.2.1.2.2.1.2` | ifDescr（fallback） |
+| 路由目标网段 | `1.3.6.1.2.1.4.21.1.1` | ipRouteDest |
+| 路由子网掩码 | `1.3.6.1.2.1.4.21.1.11` | ipRouteMask |
+| 路由下一跳 | `1.3.6.1.2.1.4.21.1.7` | ipRouteNextHop |
+| 路由出接口 | `1.3.6.1.2.1.4.21.1.2` | ipRouteIfIndex |
+| 路由类型 | `1.3.6.1.2.1.4.21.1.8` | ipRouteType（3=直连, 4=非直连） |
+| 路由协议 | `1.3.6.1.2.1.4.21.1.9` | ipRouteProto（2=本地, 13=OSPF, 14=BGP） |
+| 华为 ARP IP 列 | `1.3.6.1.4.1.2011.5.25.38.2.1.2` | hwARPDynIPAddr |
+| 华为 ARP MAC 列 | `1.3.6.1.4.1.2011.5.25.38.2.1.4` | hwARPDynMACAddr |
 
 ### OID 索引解析
 
@@ -93,17 +101,36 @@ cp switchReader/config.example.json switchReader/config.json
 bridgePort (dot1dTpFdbPort 的值) → dot1dBasePortIfIndex → ifIndex → ifName/ifDescr
 ```
 
-### 输出字段
+### 输出字段（主机信息 sheet）
 
 | 字段 | 说明 |
 |------|------|
 | 交换机IP | 交换机管理 IP |
 | IP地址 | 终端 IP（仅 L3 ARP 有，FDB 纯 MAC 条目为空） |
 | MAC地址 | 终端 MAC |
-| VLAN | VLAN ID（Q-BRIDGE-MIB 才有，BRIDGE-MIB fallback 为空） |
-| 端口 | 接口名称 |
+| VLAN/BD | VLAN ID 或 Bridge-Domain ID |
+| VLAN类型 | VLAN / BD / Super-VLAN / Super-BD（华为 MIB 提供） |
+| 物理端口 | 物理交换机端口（来自标准 MIB bridgePort 映射） |
+| 虚拟端口 | 逻辑/虚拟接口名称（来自华为 MIB ifIndex 映射，如 Vlanif、Eth-Trunk） |
 | 交换机类型 | 二层 / 三层 |
+
+### 路由表 sheet
+
+输出所有三层交换机的路由表，字段：目标网络、子网掩码、CIDR、网关、接口、路由类型（直连/非直连）、协议（本地/OSPF/BGP 等）。
+
+### FDB 合并策略
+
+**标准 MIB 读取是必须的**，不受 `mib` 配置影响：
+- 标准 MIB (Q-BRIDGE → BRIDGE) → 物理端口 + VLAN
+- 华为 MIB (HUAWEI-L2MAM) → 虚拟端口 + VLAN/BD + vlan_type
+- 以 MAC 地址为键合并两者，互补缺失信息
+
+### ARP 合并策略
+
+- 标准 ARP (IP-MIB) → 更可靠，优先使用
+- 华为 ARP (HUAWEI-ARP-MIB) → 补充 VPN 实例等场景的缺失条目
+- 以 MAC 去重，标准 ARP 的 IP 覆盖华为 ARP
 
 ### 当前状态
 
-已验证多台三层和华为 SDN 交换机。L2 交换机路径已实现（`_scan_l2_switch`）。
+已验证多台三层和华为 SDN 交换机。L2 交换机路径已实现。路由表读取已实现。输出为多 sheet Excel（主机信息 + 路由表）。

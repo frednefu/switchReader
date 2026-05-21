@@ -39,16 +39,7 @@ def _load_config():
 
 _config = _load_config()
 
-# 交换机列表
-#   每项字段：
-#     ip:        交换机管理 IP 地址
-#     community: SNMP v2c 读团体字（read community string）
-#     mib:       FDB 表优先使用的 MIB 库，可选值:
-#                "huawei"  — 优先使用华为私有 MIB (HUAWEI-L2MAM)，支持 BD 模式
-#                "standard" — 优先使用标准 MIB (Q-BRIDGE)，适用于非华为交换机
-#                省略时默认 "standard"
 SWITCH_CONFIGS = _config['switches']
-
 SNMP_PORT    = _config['snmp_port']
 SNMP_TIMEOUT = _config['snmp_timeout']
 SNMP_RETRIES = _config['snmp_retries']
@@ -60,42 +51,54 @@ WALK_LIMIT   = _config['walk_limit']
 # ============================================================
 
 # -- 系统 --
-OID_SYS_SERVICES = '1.3.6.1.2.1.1.7.0'       # sysServices（辅助判断交换机类型）
+OID_SYS_SERVICES = '1.3.6.1.2.1.1.7.0'
 
-# -- ARP 表 (IP-MIB, 仅三层交换机有) --
-OID_ARP_PHYS_ADDRESS = '1.3.6.1.2.1.4.22.1.2'  # ipNetToMediaPhysAddress（IP → MAC）
+# -- 标准 ARP 表 (IP-MIB) --
+OID_ARP_IFINDEX     = '1.3.6.1.2.1.4.22.1.1'  # ipNetToMediaIfIndex
+OID_ARP_PHYS_ADDRESS = '1.3.6.1.2.1.4.22.1.2'  # ipNetToMediaPhysAddress
 
 # -- 接口名称 --
-OID_IF_NAME  = '1.3.6.1.2.1.31.1.1.1.1'  # ifName（优先使用）
-OID_IF_DESCR = '1.3.6.1.2.1.2.2.1.2'     # ifDescr（ifName 不可用时回退）
+OID_IF_NAME  = '1.3.6.1.2.1.31.1.1.1.1'  # ifName
+OID_IF_DESCR = '1.3.6.1.2.1.2.2.1.2'     # ifDescr（fallback）
 
-# -- 桥端口号 → ifIndex 映射 (标准 MIB 路径需要) --
+# -- 桥端口号 → ifIndex 映射 --
 OID_BRIDGE_PORT_IFINDEX = '1.3.6.1.2.1.17.1.4.1.2'  # dot1dBasePortIfIndex
 
-# ---- 标准 MIB: MAC 转发表 ----
-# Q-BRIDGE-MIB（VLAN 感知，优先）
-OID_QBRIDGE_FDB_PORT = '1.3.6.1.2.1.17.7.1.2.2.1.2'  # dot1qTpFdbPort
-# BRIDGE-MIB（无 VLAN 信息，最终回退）
-OID_BRIDGE_FDB_PORT = '1.3.6.1.2.1.17.4.3.1.2'  # dot1dTpFdbPort
+# -- 标准 MIB: MAC 转发表 --
+OID_QBRIDGE_FDB_PORT = '1.3.6.1.2.1.17.7.1.2.2.1.2'  # dot1qTpFdbPort（VLAN 感知）
+OID_BRIDGE_FDB_PORT  = '1.3.6.1.2.1.17.4.3.1.2'       # dot1dTpFdbPort（无 VLAN，回退）
 
-# ---- 华为私有 MIB: MAC 转发表 (HUAWEI-L2MAM-MIB) ----
-# 优势：同时支持 VLAN 和 Bridge-Domain 模式，且直接给出 ifIndex 无需桥端口映射
-# OID 前缀: 1.3.6.1.4.1.2011 (华为企业号)
-# 列 OID = hwL2MacDynamicEntry(.42.2.1) + column_number
+# -- 华为私有 MIB: MAC 转发表 (HUAWEI-L2MAM-MIB) --
 OID_HW_L2MAC_ENTRY      = '1.3.6.1.4.1.2011.5.25.42.2.1'      # hwL2MacDynamicEntry
-OID_HW_L2MAC_IFINDEX    = '1.3.6.1.4.1.2011.5.25.42.2.1.3'    # hwL2MacIfIndex（接口索引）
-OID_HW_L2MAC_VLAN_TYPE  = '1.3.6.1.4.1.2011.5.25.42.2.1.5'    # hwL2MacVlanType（1=VLAN, 2=BD）
+OID_HW_L2MAC_IFINDEX    = '1.3.6.1.4.1.2011.5.25.42.2.1.3'    # hwL2MacIfIndex
+OID_HW_L2MAC_VLAN_TYPE  = '1.3.6.1.4.1.2011.5.25.42.2.1.5'    # hwL2MacVlanType
 
-# ---- 华为私有 MIB: ARP 表 (HUAWEI-ARP-MIB) ----
-# 当标准 IP-MIB ARP 在 VPN 实例下不可用时，使用华为私有 ARP MIB
-OID_HW_ARP_ENTRY        = '1.3.6.1.4.1.2011.5.25.38.2'        # hwARPDynEntry (column .2)
+# -- 华为私有 MIB: ARP 表 (HUAWEI-ARP-MIB) --
+OID_HW_ARP_ENTRY   = '1.3.6.1.4.1.2011.5.25.38.2'            # hwARPDynEntry
+OID_HW_ARP_IPADDR  = '1.3.6.1.4.1.2011.5.25.38.2.1.2'        # hwARPDynIPAddr
+OID_HW_ARP_MACADDR = '1.3.6.1.4.1.2011.5.25.38.2.1.4'        # hwARPDynMACAddr
+
+# -- 路由表 (IP-MIB) --
+OID_ROUTE_DEST    = '1.3.6.1.2.1.4.21.1.1'   # ipRouteDest
+OID_ROUTE_MASK    = '1.3.6.1.2.1.4.21.1.11'  # ipRouteMask
+OID_ROUTE_NEXTHOP = '1.3.6.1.2.1.4.21.1.7'   # ipRouteNextHop
+OID_ROUTE_IFINDEX = '1.3.6.1.2.1.4.21.1.2'   # ipRouteIfIndex
+OID_ROUTE_TYPE    = '1.3.6.1.2.1.4.21.1.8'   # ipRouteType
+OID_ROUTE_PROTO   = '1.3.6.1.2.1.4.21.1.9'   # ipRouteProto
+
+# 路由协议常量
+_ROUTE_TYPE = {3: '直连', 4: '非直连'}
+_ROUTE_PROTO = {
+    2: '本地', 8: 'RIP', 9: 'IS-IS', 13: 'OSPF', 14: 'BGP',
+}
+_ROUTE_TYPE_DEFAULT = '其他'
+_ROUTE_PROTO_DEFAULT = '其他'
 
 # ============================================================
 # SNMP 工具 (pysnmp 7.x 异步, 使用 Slim API)
 # ============================================================
 
 async def _snmp_get_scalar(slim, ip, community, oid):
-    """获取单个标量值，失败返回 None。"""
     err, err_status, err_idx, varBinds = await slim.get(
         community, ip, SNMP_PORT,
         ObjectType(ObjectIdentity(oid)),
@@ -124,7 +127,7 @@ async def _snmp_walk(slim, ip, community, oid):
         for vb in varBinds:
             oid_str = str(vb[0])
             if not oid_str.startswith(oid + '.') and oid_str != oid:
-                return data  # 已走出目标子树
+                return data
             data[oid_str] = vb[1]
             next_vb = ObjectType(ObjectIdentity(oid_str))
 
@@ -137,10 +140,7 @@ async def _snmp_walk(slim, ip, community, oid):
 
 def parse_ip_from_arp_index(oid_str):
     """从 ipNetToMediaEntry 索引中提取 IP 地址。
-
-    索引格式: <base>.ifIndex.a.b.c.d
-    返回: "a.b.c.d" 或 None
-    """
+    索引格式: <base>.ifIndex.a.b.c.d，取末尾 4 段。"""
     parts = oid_str.split('.')
     if len(parts) >= 4:
         return '.'.join(parts[-4:])
@@ -153,13 +153,10 @@ def _format_mac(octet_parts):
 
 
 def _parse_standard_fdb_index(oid_str, base_oid):
-    """从标准 MIB 的 FDB 表索引中提取 VLAN(如果存在)和 MAC。
-
-    Q-BRIDGE-MIB: <base>.VLAN.m1.m2.m3.m4.m5.m6  (7 段 suffix)
-    BRIDGE-MIB:   <base>.m1.m2.m3.m4.m5.m6        (6 段 suffix)
-
-    返回: (vlan, mac_str) — vlan 在 BRIDGE-MIB 下为 None
-    """
+    """从标准 MIB FDB 表索引中提取 VLAN 和 MAC。
+    Q-BRIDGE: <base>.VLAN.m1...m6 (7段)
+    BRIDGE:   <base>.m1...m6 (6段)
+    返回: (vlan, mac_str) — VLAN 在 BRIDGE-MIB 下为 None"""
     suffix = oid_str[len(base_oid) + 1:]
     parts = suffix.split('.')
     if len(parts) == 7:
@@ -171,26 +168,51 @@ def _parse_standard_fdb_index(oid_str, base_oid):
 
 def _parse_hw_fdb_index(oid_str, column_oid):
     """从华为 hwL2MacDynamicEntry 索引中提取 VLAN/BD ID 和 MAC。
-
-    索引格式 (标准):   <column_oid>.VlanIndex.m1.m2.m3.m4.m5.m6
-    索引格式 (CE6881H): <column_oid>.VlanIndex.m1.m2.m3.m4.m5.m6.x.y.z
-
-    返回: (vlan_or_bd_id, mac_str) 或 (None, None)
-    """
+    索引格式: <column_oid>.VlanIndex.m1...m6[.x.y.z]
+    返回: (vlan_or_bd_id, mac_str) 或 (None, None)"""
     suffix = oid_str[len(column_oid) + 1:]
     parts = suffix.split('.')
-    if len(parts) >= 7:  # 至少 1 个 VLAN/BD ID + 6 个 MAC octet（后面可能还有额外字段）
+    if len(parts) >= 7:
         return int(parts[0]), _format_mac(parts[1:7])
     return None, None
 
 
 def _hw_vlan_type_label(vlan_type_value):
-    """华为 hwL2MacVlanType 数值 → 中文标签。
-
-    1=VLAN, 2=BD(Bridge-Domain), 3=Super-VLAN, 4=Super-BD
-    """
+    """华为 hwL2MacVlanType 数值 → 中文标签。"""
     mapping = {1: 'VLAN', 2: 'BD', 3: 'Super-VLAN', 4: 'Super-BD'}
     return mapping.get(int(vlan_type_value), f'Type{vlan_type_value}')
+
+
+def _parse_hw_arp_index(oid_str, column_oid):
+    """从华为 hwARPDynEntry 索引中提取 IP 地址。
+    索引格式: <column_oid>.ifIndex.a.b.c.d[vpn_len.vpn_chars...]
+    返回: ip_str 或 None"""
+    suffix = oid_str[len(column_oid) + 1:]
+    parts = suffix.split('.')
+    if len(parts) >= 5:
+        return '.'.join(parts[1:5])
+    return None
+
+
+def _route_oid_index_to_net(oid_str, column_oid):
+    """从路由表 OID 索引中提取目标网络地址。
+    索引格式: <column_oid>.a.b.c.d
+    返回: "a.b.c.d" 或 None"""
+    suffix = oid_str[len(column_oid) + 1:]
+    parts = suffix.split('.')
+    if len(parts) == 4:
+        return suffix
+    return None
+
+
+def _subnet_mask_to_cidr(mask_str):
+    """子网掩码 → CIDR 前缀长度，例如 '255.255.255.0' → 24"""
+    try:
+        parts = [int(x) for x in mask_str.split('.')]
+        binary = ''.join(f'{p:08b}' for p in parts)
+        return binary.count('1')
+    except (ValueError, AttributeError):
+        return None
 
 
 # ============================================================
@@ -211,10 +233,8 @@ async def _build_ifindex_names(slim, ip, community):
 
 
 async def _build_bridge_port_map(slim, ip, community, ifindex_names):
-    """构建 bridgePort → 端口名称 映射（仅标准 MIB 路径需要）。
-
-    链路: bridgePort(dot1dTpFdbPort) → ifIndex(dot1dBasePortIfIndex) → ifName
-    """
+    """构建 bridgePort → 端口名称 映射。
+    链路: bridgePort → ifIndex(dot1dBasePortIfIndex) → ifName"""
     bridge_to_ifindex = {}
     for oid_str, val in (await _snmp_walk(slim, ip, community, OID_BRIDGE_PORT_IFINDEX)).items():
         bridge_port = oid_str.rsplit('.', 1)[-1]
@@ -227,65 +247,17 @@ async def _build_bridge_port_map(slim, ip, community, ifindex_names):
 
 
 # ============================================================
-# FDB 获取：三级回退策略
+# FDB 合并获取：标准 MIB + 华为 MIB 合并，以 MAC 为键
 # ============================================================
 
-async def _get_fdb_huawei(slim, ip, community):
-    """尝试华为私有 MIB (hwL2MacDynamicTable)。
-
-    成功返回 dict: {mac: {"vlan": int, "port": str, "vlan_type": "VLAN"|"BD"|...}}
-    失败返回 None
-    """
-    # 遍历 ifIndex 列
-    ifindex_data = await _snmp_walk(slim, ip, community, OID_HW_L2MAC_IFINDEX)
-    if not ifindex_data:
-        return None
-
-    # 遍历 VlanType 列
-    vlan_type_data = await _snmp_walk(slim, ip, community, OID_HW_L2MAC_VLAN_TYPE)
-
-    # 建立 ifIndex → 端口名称 映射（华为 MIB 直接给出 ifIndex）
-    ifindex_names = await _build_ifindex_names(slim, ip, community)
-
-    fdb = {}
-    for oid_str, val in ifindex_data.items():
-        vlan_id, mac = _parse_hw_fdb_index(oid_str, OID_HW_L2MAC_IFINDEX)
-        if mac is None:
-            continue
-        ifidx = str(val)
-
-        # 查找对应的 VlanType（1=VLAN, 2=BD 等）
-        vlan_type_tag = ''
-        for vt_oid, vt_val in vlan_type_data.items():
-            vt_vlan, vt_mac = _parse_hw_fdb_index(vt_oid, OID_HW_L2MAC_VLAN_TYPE)
-            if vt_vlan == vlan_id and vt_mac == mac:
-                vlan_type_tag = _hw_vlan_type_label(vt_val)
-                break
-
-        port_name = ifindex_names.get(ifidx, f"ifIndex{ifidx}")
-        fdb[mac] = {
-            "vlan": vlan_id,
-            "port": port_name,
-            "vlan_type": vlan_type_tag,
-        }
-
-    return fdb
-
-
 async def _get_fdb_standard(slim, ip, community):
-    """尝试标准 MIB（Q-BRIDGE → BRIDGE）。
-
-    成功返回 dict: {mac: {"vlan": int|None, "port": str, "vlan_type": ""}}
-    失败返回 None
-    """
+    """读取标准 MIB FDB（Q-BRIDGE → BRIDGE 回退），返回 {mac: {vlan, 物理端口}}。"""
     ifindex_names = await _build_ifindex_names(slim, ip, community)
     bridge_port_map = await _build_bridge_port_map(slim, ip, community, ifindex_names)
 
-    # 优先 Q-BRIDGE-MIB
     fdb_raw = await _snmp_walk(slim, ip, community, OID_QBRIDGE_FDB_PORT)
     fdb_oid = OID_QBRIDGE_FDB_PORT
     if not fdb_raw:
-        # 回退到 BRIDGE-MIB
         fdb_raw = await _snmp_walk(slim, ip, community, OID_BRIDGE_FDB_PORT)
         fdb_oid = OID_BRIDGE_FDB_PORT
 
@@ -299,45 +271,214 @@ async def _get_fdb_standard(slim, ip, community):
             continue
         bridge_port = str(val)
         port_name = bridge_port_map.get(bridge_port, f"Port{bridge_port}")
-        fdb[mac] = {
-            "vlan": vlan,
-            "port": port_name,
-            "vlan_type": '',
-        }
+        fdb[mac] = {"vlan": vlan, "物理端口": port_name}
     return fdb
 
 
-async def _get_fdb(slim, ip, community, mib_pref='standard'):
-    """获取 FDB 表，按配置的 MIB 优先级获取。
+async def _get_fdb_huawei(slim, ip, community):
+    """读取华为私有 MIB FDB（HUAWEI-L2MAM），返回 {mac: {vlan, 虚拟端口, vlan_type}}。"""
+    ifindex_data = await _snmp_walk(slim, ip, community, OID_HW_L2MAC_IFINDEX)
+    if not ifindex_data:
+        return None
 
-    mib_pref='huawei':  华为 MIB → 标准 MIB
-    mib_pref='standard': 标准 MIB (Q-BRIDGE → BRIDGE)
+    vlan_type_data = await _snmp_walk(slim, ip, community, OID_HW_L2MAC_VLAN_TYPE)
+    ifindex_names = await _build_ifindex_names(slim, ip, community)
+
+    fdb = {}
+    for oid_str, val in ifindex_data.items():
+        vlan_id, mac = _parse_hw_fdb_index(oid_str, OID_HW_L2MAC_IFINDEX)
+        if mac is None:
+            continue
+        ifidx = str(val)
+
+        vlan_type_tag = ''
+        for vt_oid, vt_val in vlan_type_data.items():
+            vt_vlan, vt_mac = _parse_hw_fdb_index(vt_oid, OID_HW_L2MAC_VLAN_TYPE)
+            if vt_vlan == vlan_id and vt_mac == mac:
+                vlan_type_tag = _hw_vlan_type_label(vt_val)
+                break
+
+        port_name = ifindex_names.get(ifidx, f"ifIndex{ifidx}")
+        fdb[mac] = {"vlan": vlan_id, "虚拟端口": port_name, "vlan_type": vlan_type_tag}
+    return fdb
+
+
+async def _get_fdb_merged(slim, ip, community, mib_pref='standard'):
+    """合并标准 MIB 与华为 MIB 的 FDB 数据。
+
+    - 标准 MIB 提供：物理端口 + VLAN
+    - 华为 MIB 提供：虚拟端口 + VLAN/BD + vlan_type
+    - 以 MAC 地址为键合并，两端信息互补
     """
-    if mib_pref == 'huawei':
-        # 华为设备：优先华为私有 MIB，更准确且支持 BD
-        fdb = await _get_fdb_huawei(slim, ip, community)
-        if fdb:
-            print(f"  {ip}: 华为私有 MIB (HUAWEI-L2MAM)")
-            return fdb
-        # 回退标准 MIB
-        fdb = await _get_fdb_standard(slim, ip, community)
-        if fdb:
-            print(f"  {ip}: 标准 MIB (Q-BRIDGE) [华为 MIB 不可用，已回退]")
-            return fdb
-    else:
-        # 标准设备：优先标准 MIB
-        fdb = await _get_fdb_standard(slim, ip, community)
-        if fdb:
-            print(f"  {ip}: 标准 MIB (Q-BRIDGE)")
-            return fdb
-        # 回退华为 MIB（可能实际是华为设备）
-        fdb = await _get_fdb_huawei(slim, ip, community)
-        if fdb:
-            print(f"  {ip}: 华为私有 MIB (HUAWEI-L2MAM) [标准 MIB 不可用，已回退]")
-            return fdb
+    # 并行获取两份 FDB
+    std_future = _get_fdb_standard(slim, ip, community)
+    hw_future = _get_fdb_huawei(slim, ip, community) if mib_pref == 'huawei' else None
 
-    print(f"  {ip}: 未获取到任何 FDB 数据")
-    return {}
+    fdb_std = await std_future
+    fdb_hw = await hw_future if hw_future else None
+
+    sources = []
+    if fdb_std:
+        sources.append("标准MIB")
+    if fdb_hw:
+        sources.append("华为MIB")
+    print(f"  {ip}: FDB 合并 ({'+'.join(sources) if sources else '无数据'})")
+
+    # 收集所有 MAC
+    all_macs = set()
+    if fdb_std:
+        all_macs.update(fdb_std)
+    if fdb_hw:
+        all_macs.update(fdb_hw)
+
+    merged = {}
+    for mac in all_macs:
+        std = fdb_std.get(mac, {}) if fdb_std else {}
+        hw = fdb_hw.get(mac, {}) if fdb_hw else {}
+
+        # VLAN: 标准 MIB 优先，华为 MIB 补充
+        vlan = std.get("vlan") if std.get("vlan") is not None else hw.get("vlan")
+
+        merged[mac] = {
+            "VLAN/BD": vlan,
+            "VLAN类型": hw.get("vlan_type", ""),
+            "物理端口": std.get("物理端口", ""),
+            "虚拟端口": hw.get("虚拟端口", ""),
+        }
+
+    return merged
+
+
+# ============================================================
+# ARP 合并获取：标准 IP-MIB + 华为 ARP MIB
+# ============================================================
+
+async def _get_arp_standard(slim, ip, community):
+    """标准 ARP 表 (ipNetToMediaTable)，返回 {mac: ip}。"""
+    arp_phys_raw = await _snmp_walk(slim, ip, community, OID_ARP_PHYS_ADDRESS)
+    if not arp_phys_raw:
+        return {}
+
+    arp = {}
+    for oid_str, val in arp_phys_raw.items():
+        ip_addr = parse_ip_from_arp_index(oid_str)
+        if ip_addr is None:
+            continue
+        mac_bytes = val.asOctets()
+        mac_str = ':'.join(f'{b:02x}' for b in mac_bytes)
+        arp[mac_str] = ip_addr
+    return arp
+
+
+async def _get_arp_huawei(slim, ip, community):
+    """华为私有 ARP 表 (hwARPDynTable)，返回 {mac: ip}。"""
+    arp_ip_raw = await _snmp_walk(slim, ip, community, OID_HW_ARP_IPADDR)
+    arp_mac_raw = await _snmp_walk(slim, ip, community, OID_HW_ARP_MACADDR)
+    if not arp_ip_raw or not arp_mac_raw:
+        return {}
+
+    arp = {}
+    for oid_str, val in arp_ip_raw.items():
+        ip_addr = _parse_hw_arp_index(oid_str, OID_HW_ARP_IPADDR)
+        if ip_addr is None:
+            continue
+        # 用相同索引查找 MAC
+        mac_oid = oid_str.replace(OID_HW_ARP_IPADDR, OID_HW_ARP_MACADDR)
+        mac_val = arp_mac_raw.get(mac_oid)
+        if mac_val is None:
+            continue
+        mac_str = ':'.join(f'{b:02x}' for b in mac_val.asOctets())
+        arp[mac_str] = ip_addr
+    return arp
+
+
+async def _get_arp_merged(slim, ip, community):
+    """合并标准 ARP 与华为 ARP。
+
+    - 优先标准 ARP（IP 更准确）
+    - 华为 ARP 补充 VPN 实例等场景下的缺失条目
+    - 以 MAC 去重：同一 MAC 出现多次时保留最先出现的 IP
+    """
+    arp_std = await _get_arp_standard(slim, ip, community)
+    arp_hw = await _get_arp_huawei(slim, ip, community)
+
+    # 合并：标准优先，华为补充
+    merged = dict(arp_hw)  # 先放华为的
+    merged.update(arp_std)  # 标准覆盖（更可靠）
+
+    src_std = len(arp_std)
+    src_hw = len(arp_hw)
+    if src_std or src_hw:
+        print(f"  {ip}: ARP 合并 (标准={src_std}, 华为={src_hw}, 去重后={len(merged)})")
+    return merged
+
+
+# ============================================================
+# 路由表获取
+# ============================================================
+
+async def _get_route_table(slim, ip, community):
+    """读取路由表 (ipRouteTable) 并返回结构化数据。
+
+    返回: [{目标网络, 子网掩码, CIDR, 网关, 接口, 路由类型, 协议}, ...]
+    """
+    dest_raw = await _snmp_walk(slim, ip, community, OID_ROUTE_DEST)
+    if not dest_raw:
+        return []
+
+    mask_raw = await _snmp_walk(slim, ip, community, OID_ROUTE_MASK)
+    nexthop_raw = await _snmp_walk(slim, ip, community, OID_ROUTE_NEXTHOP)
+    ifindex_raw = await _snmp_walk(slim, ip, community, OID_ROUTE_IFINDEX)
+    type_raw = await _snmp_walk(slim, ip, community, OID_ROUTE_TYPE)
+    proto_raw = await _snmp_walk(slim, ip, community, OID_ROUTE_PROTO)
+
+    ifindex_names = await _build_ifindex_names(slim, ip, community)
+
+    routes = []
+    for oid_str, dest_val in dest_raw.items():
+        net = str(dest_val)
+        idx = _route_oid_index_to_net(oid_str, OID_ROUTE_DEST)
+        if idx is None:
+            continue
+
+        mask_oid = f'{OID_ROUTE_MASK}.{idx}'
+        mask_val = mask_raw.get(mask_oid)
+        mask_str = str(mask_val) if mask_val is not None else ''
+        cidr = _subnet_mask_to_cidr(mask_str) if mask_str else None
+
+        nexthop_oid = f'{OID_ROUTE_NEXTHOP}.{idx}'
+        nexthop_val = nexthop_raw.get(nexthop_oid)
+        nexthop_str = str(nexthop_val) if nexthop_val is not None else ''
+
+        ifindex_oid = f'{OID_ROUTE_IFINDEX}.{idx}'
+        ifidx_val = ifindex_raw.get(ifindex_oid)
+        iface = ifindex_names.get(str(ifidx_val), '') if ifidx_val is not None else ''
+
+        type_oid = f'{OID_ROUTE_TYPE}.{idx}'
+        type_val = type_raw.get(type_oid)
+        route_type = _ROUTE_TYPE.get(int(type_val), _ROUTE_TYPE_DEFAULT) if type_val is not None else ''
+
+        proto_oid = f'{OID_ROUTE_PROTO}.{idx}'
+        proto_val = proto_raw.get(proto_oid)
+        protocol = _ROUTE_PROTO.get(int(proto_val), _ROUTE_PROTO_DEFAULT) if proto_val is not None else ''
+
+        cidr_str = f'{net}/{cidr}' if cidr is not None else net
+
+        routes.append({
+            "交换机IP": ip,
+            "目标网络": net,
+            "子网掩码": mask_str,
+            "CIDR": cidr_str,
+            "网关": nexthop_str,
+            "接口": iface,
+            "路由类型": route_type,
+            "协议": protocol,
+        })
+
+    if routes:
+        print(f"  {ip}: 路由表 {len(routes)} 条")
+
+    return routes
 
 
 # ============================================================
@@ -346,20 +487,26 @@ async def _get_fdb(slim, ip, community, mib_pref='standard'):
 
 async def _detect_switch_type(slim, ip, community):
     """检测交换机是二层还是三层。
-
-    - 尝试遍历 ARP 表：有数据 → L3，无数据 → L2
-    - sysServices 作为辅助参考
+    - 尝试遍历标准 ARP 表：有数据 → L3，无数据 → L2
+    - 同时尝试华为 ARP 表辅助判断
     """
     svc = await _snmp_get_scalar(slim, ip, community, OID_SYS_SERVICES)
-    arp_data = await _snmp_walk(slim, ip, community, OID_ARP_PHYS_ADDRESS)
+    arp_std = await _snmp_walk(slim, ip, community, OID_ARP_PHYS_ADDRESS)
 
-    if arp_data:
+    if arp_std:
         print(f"  {ip} -> 三层交换机 (ARP 表可用)")
         return 'L3'
-    else:
+
+    # 标准 ARP 无数据，尝试华为 ARP
+    arp_hw = await _snmp_walk(slim, ip, community, OID_HW_ARP_IPADDR)
+    if arp_hw:
         svc_str = f", sysServices={svc}" if svc is not None else ""
-        print(f"  {ip} -> 二层交换机 (无 ARP 表{svc_str})")
-        return 'L2'
+        print(f"  {ip} -> 三层交换机 (华为 ARP 表可用{svc_str})")
+        return 'L3'
+
+    svc_str = f", sysServices={svc}" if svc is not None else ""
+    print(f"  {ip} -> 二层交换机 (无 ARP 表{svc_str})")
+    return 'L2'
 
 
 # ============================================================
@@ -367,13 +514,10 @@ async def _detect_switch_type(slim, ip, community):
 # ============================================================
 
 async def _scan_l2_switch(slim, ip, community, mib_pref='standard'):
-    """扫描二层交换机：仅获取 MAC 转发表 (MAC → VLAN/BD → 端口)。
-
-    二层交换机不做 IP 路由，没有 ARP 表。
-    """
+    """扫描二层交换机：FDB 合并 (标准 MIB + 可选华为 MIB)。"""
     print(f"扫描二层交换机: {ip} ...")
 
-    fdb = await _get_fdb(slim, ip, community, mib_pref)
+    fdb = await _get_fdb_merged(slim, ip, community, mib_pref)
 
     results = []
     for mac, info in fdb.items():
@@ -381,9 +525,10 @@ async def _scan_l2_switch(slim, ip, community, mib_pref='standard'):
             "交换机IP": ip,
             "IP地址": "",
             "MAC地址": mac,
-            "VLAN/BD": info.get("vlan"),
-            "VLAN类型": info.get("vlan_type", ""),
-            "端口": info["port"],
+            "VLAN/BD": info.get("VLAN/BD"),
+            "VLAN类型": info.get("VLAN类型", ""),
+            "物理端口": info.get("物理端口", ""),
+            "虚拟端口": info.get("虚拟端口", ""),
             "交换机类型": "二层",
         })
     return results
@@ -394,68 +539,45 @@ async def _scan_l2_switch(slim, ip, community, mib_pref='standard'):
 # ============================================================
 
 async def _scan_l3_switch(slim, ip, community, mib_pref='standard'):
-    """扫描三层交换机：ARP 表 (IP→MAC) + MAC 转发表 (MAC→VLAN/BD/端口) 合并输出。"""
+    """扫描三层交换机：ARP 合并 + FDB 合并 + 路由表。"""
     print(f"扫描三层交换机: {ip} ...")
 
-    # 1. ARP 表: MAC → IP 映射，同时获取接口索引
-    # ipNetToMediaIfIndex (OID 1.3.6.1.2.1.4.22.1.1) 给出每个 ARP 条目的出接口
-    OID_ARP_IFINDEX = '1.3.6.1.2.1.4.22.1.1'
-    ifindex_names = await _build_ifindex_names(slim, ip, community)
-
-    arp_table = {}     # MAC → IP
-    arp_ifindex = {}   # MAC → 端口名 (来自 ARP 表自身的接口索引)
-    arp_ifindex_raw = await _snmp_walk(slim, ip, community, OID_ARP_IFINDEX)
-
-    arp_phys_raw = await _snmp_walk(slim, ip, community, OID_ARP_PHYS_ADDRESS)
-    for oid_str, val in arp_phys_raw.items():
-        ip_addr = parse_ip_from_arp_index(oid_str)
-        if ip_addr is None:
-            continue
-        mac_bytes = val.asOctets()
-        mac_str = ':'.join(f'{b:02x}' for b in mac_bytes)
-        arp_table[mac_str] = ip_addr
-
-        # 从 ARP 接口索引表中获取对应接口
-        # arp_ifindex_raw 的 OID 格式与 arp_phys_raw 相同 (同一条目的不同列)
-        # 通过替换列号来查找: ipNetToMediaIfIndex (.1) vs ipNetToMediaPhysAddress (.2)
-        ifidx_oid_str = oid_str.replace(OID_ARP_PHYS_ADDRESS, OID_ARP_IFINDEX)
-        ifidx_val = arp_ifindex_raw.get(ifidx_oid_str)
-        if ifidx_val is not None:
-            arp_ifindex[mac_str] = ifindex_names.get(str(ifidx_val), f"ifIndex{ifidx_val}")
-
+    # 1. ARP 表：MAC → IP（标准 + 华为合并）
+    arp_table = await _get_arp_merged(slim, ip, community)
     if not arp_table:
         print(f"  {ip}: ARP 表为空")
-        return []
+        # 即使无 ARP，FDB 仍然有价值（纯 MAC 条目）
+        arp_table = {}
 
-    # 2. FDB 表（按配置的 MIB 优先级）
-    fdb = await _get_fdb(slim, ip, community, mib_pref)
+    # 2. FDB 表：标准 + 华为合并
+    fdb = await _get_fdb_merged(slim, ip, community, mib_pref)
 
-    # 3. 合并: ARP 中的每个 IP-MAC 对 + FDB 补齐
+    # 3. 合并: ARP (IP→MAC) + FDB (MAC→端口/VLAN)
     results = []
     for mac, ip_addr in arp_table.items():
         fdb_info = fdb.get(mac, {})
-        # 端口优先用 FDB 的，没有则用 ARP 表自带的 ifIndex
-        port = fdb_info.get("port") or arp_ifindex.get(mac, "")
         results.append({
             "交换机IP": ip,
             "IP地址": ip_addr,
             "MAC地址": mac,
-            "VLAN/BD": fdb_info.get("vlan"),
-            "VLAN类型": fdb_info.get("vlan_type", ""),
-            "端口": port,
+            "VLAN/BD": fdb_info.get("VLAN/BD"),
+            "VLAN类型": fdb_info.get("VLAN类型", ""),
+            "物理端口": fdb_info.get("物理端口", ""),
+            "虚拟端口": fdb_info.get("虚拟端口", ""),
             "交换机类型": "三层",
         })
 
-    # 补充 FDB 中 ARP 里没有的条目（被动设备、静默终端等）
+    # 补充 FDB 中 ARP 没有的条目（被动设备、静默终端等）
     for mac, fdb_info in fdb.items():
         if mac not in arp_table:
             results.append({
                 "交换机IP": ip,
                 "IP地址": "",
                 "MAC地址": mac,
-                "VLAN/BD": fdb_info.get("vlan"),
-                "VLAN类型": fdb_info.get("vlan_type", ""),
-                "端口": fdb_info.get("port", ""),
+                "VLAN/BD": fdb_info.get("VLAN/BD"),
+                "VLAN类型": fdb_info.get("VLAN类型", ""),
+                "物理端口": fdb_info.get("物理端口", ""),
+                "虚拟端口": fdb_info.get("虚拟端口", ""),
                 "交换机类型": "三层",
             })
 
@@ -467,19 +589,23 @@ async def _scan_l3_switch(slim, ip, community, mib_pref='standard'):
 # ============================================================
 
 async def _async_scan_switch(config):
-    """单台交换机的完整异步扫描流程。"""
+    """单台交换机的完整异步扫描流程，返回 (host_data, route_data)。"""
     ip = config['ip']
     community = config['community']
-    mib_pref = config.get('mib', 'standard')  # 默认使用标准 MIB
+    mib_pref = config.get('mib', 'standard')
 
     slim = Slim()
     try:
         switch_type = await _detect_switch_type(slim, ip, community)
 
         if switch_type == 'L3':
-            return await _scan_l3_switch(slim, ip, community, mib_pref)
+            host_data = await _scan_l3_switch(slim, ip, community, mib_pref)
+            route_data = await _get_route_table(slim, ip, community)
         else:
-            return await _scan_l2_switch(slim, ip, community, mib_pref)
+            host_data = await _scan_l2_switch(slim, ip, community, mib_pref)
+            route_data = []
+
+        return host_data, route_data
     finally:
         slim.close()
 
@@ -494,24 +620,37 @@ def scan_switch(config):
 # ============================================================
 
 def main():
-    all_data = []
+    all_hosts = []
+    all_routes = []
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {executor.submit(scan_switch, sw): sw for sw in SWITCH_CONFIGS}
         for future in futures:
             sw = futures[future]
             try:
-                all_data.extend(future.result())
+                host_data, route_data = future.result()
+                all_hosts.extend(host_data)
+                all_routes.extend(route_data)
             except Exception as e:
                 print(f"扫描交换机 {sw['ip']} 失败: {e}")
 
-    if all_data:
-        df = pd.DataFrame(all_data)
-        # 将 VLAN/BD 列转为可空整数，避免 Excel 中显示为 1.0 等浮点数
-        df['VLAN/BD'] = df['VLAN/BD'].astype('Int64')
-        df.to_excel("network_report.xlsx", index=False)
-        print(f"\n扫描完成，共 {len(all_data)} 条记录，已保存至 network_report.xlsx")
-    else:
-        print("\n未获取到任何数据，请检查交换机配置和 SNMP community。")
+    with pd.ExcelWriter("network_report.xlsx") as writer:
+        if all_hosts:
+            df_hosts = pd.DataFrame(all_hosts)
+            df_hosts['VLAN/BD'] = df_hosts['VLAN/BD'].astype('Int64')
+            df_hosts.to_excel(writer, sheet_name='主机信息', index=False)
+            print(f"\n主机信息: {len(all_hosts)} 条记录")
+
+        if all_routes:
+            df_routes = pd.DataFrame(all_routes)
+            df_routes.to_excel(writer, sheet_name='路由表', index=False)
+            print(f"路由表: {len(all_routes)} 条记录")
+
+        if not all_hosts and not all_routes:
+            print("\n未获取到任何数据，请检查交换机配置和 SNMP community。")
+            return
+
+    print("已保存至 network_report.xlsx")
 
 
 if __name__ == "__main__":
