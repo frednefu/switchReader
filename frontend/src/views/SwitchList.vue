@@ -23,6 +23,9 @@
 
     <el-card>
       <el-table :data="switches" stripe v-loading="loading" style="width: 100%">
+        <template #empty>
+          <el-empty description="暂无交换机，请点击「添加交换机」开始" :image-size="80" />
+        </template>
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="name" label="名称" min-width="120" />
         <el-table-column prop="ip_address" label="IP 地址" width="140" />
@@ -62,14 +65,27 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="$router.push(`/switches/${row.id}`)">详情</el-button>
-            <el-button v-if="authStore.isAdmin" size="small" @click="handleScan(row)">
-              <el-icon><Refresh /></el-icon>扫描
-            </el-button>
-            <el-button v-if="authStore.isAdmin" size="small" type="warning" @click="openEdit(row)">编辑</el-button>
-            <el-button v-if="authStore.isAdmin" size="small" type="danger" @click="handleDelete(row)">删除</el-button>
+            <el-dropdown v-if="authStore.isAdmin" trigger="click" @command="(cmd) => handleCommand(cmd, row)">
+              <el-button size="small">
+                更多<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="scan">
+                    <el-icon><Refresh /></el-icon>扫描
+                  </el-dropdown-item>
+                  <el-dropdown-item command="edit">
+                    <el-icon><Edit /></el-icon>编辑
+                  </el-dropdown-item>
+                  <el-dropdown-item command="delete" divided>
+                    <span style="color: #f56c6c;"><el-icon><Delete /></el-icon>删除</span>
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </template>
         </el-table-column>
       </el-table>
@@ -176,6 +192,12 @@ async function handleDelete(row) {
     ElMessage.success('已删除')
     fetchList()
   } catch { /* cancelled */ }
+}
+
+function handleCommand(cmd, row) {
+  if (cmd === 'scan') handleScan(row)
+  else if (cmd === 'edit') openEdit(row)
+  else if (cmd === 'delete') handleDelete(row)
 }
 
 onMounted(fetchList)

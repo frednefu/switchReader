@@ -3,7 +3,10 @@
     <div class="page-header">
       <h2>搜索结果：{{ query }}</h2>
     </div>
-    <el-table :data="results" v-loading="loading" stripe empty-text="未找到匹配记录">
+    <el-table :data="results" v-loading="loading" stripe>
+      <template #empty>
+        <el-empty description="未找到匹配记录" :image-size="80" />
+      </template>
       <el-table-column prop="switch_name" label="交换机" width="160" show-overflow-tooltip />
       <el-table-column prop="switch_ip" label="交换机IP" width="140" />
       <el-table-column prop="ip_address" label="IP 地址" width="140" />

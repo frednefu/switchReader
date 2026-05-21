@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**重要：所有对话、回复、代码注释必须使用中文。**
+
 ## Project Overview
 
 **switchReader** — 通过 SNMP 从网管交换机读取 IP/MAC/VLAN/端口对应关系，输出 Excel 报表。

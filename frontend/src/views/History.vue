@@ -38,7 +38,10 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="items" v-loading="loading" stripe style="width:100%">
+    <el-table :data="items" v-loading="loading" stripe :row-class-name="rowClassName" style="width:100%">
+      <template #empty>
+        <el-empty description="暂无历史记录" :image-size="80" />
+      </template>
       <el-table-column label="时间" width="170">
         <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
       </el-table-column>
@@ -115,6 +118,10 @@ function changeLabel(type) {
   return type === 'added' ? '新增' : type === 'deleted' ? '删除' : '变更'
 }
 
+function rowClassName({ row }) {
+  return 'row-' + row.change_type
+}
+
 function changeDiff(row, field) {
   const ov = row['old_' + field]
   const nv = row['new_' + field]
@@ -181,4 +188,9 @@ onMounted(() => {
 .history-page h2 { margin: 0 0 16px; }
 .filter-bar { margin-bottom: 12px; }
 .pagination-wrap { margin-top: 16px; display: flex; justify-content: flex-end; }
+
+/* 行颜色编码 - 使用深度选择器穿透 scoped */
+:deep(.row-added) { background-color: #f0f9eb !important; }
+:deep(.row-deleted) { background-color: #fef0f0 !important; }
+:deep(.row-modified) { background-color: #fdf6ec !important; }
 </style>

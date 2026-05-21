@@ -8,6 +8,9 @@
     </div>
 
     <el-table :data="subnets" v-loading="loading" stripe>
+      <template #empty>
+        <el-empty description="暂无地址段，请点击「添加地址段」开始" :image-size="80" />
+      </template>
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="name" label="名称" min-width="120" />
       <el-table-column prop="subnet_cidr" label="CIDR" min-width="160" />

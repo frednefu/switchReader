@@ -46,9 +46,15 @@
 
     <el-container>
       <el-header class="navbar">
-        <el-button text @click="isCollapse = !isCollapse">
-          <el-icon :size="20"><Fold v-if="!isCollapse" /><Expand v-else /></el-icon>
-        </el-button>
+        <div class="navbar-left">
+          <el-button text @click="isCollapse = !isCollapse">
+            <el-icon :size="20"><Fold v-if="!isCollapse" /><Expand v-else /></el-icon>
+          </el-button>
+          <el-breadcrumb separator="/">
+            <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
+            <el-breadcrumb-item v-if="pageTitle">{{ pageTitle }}</el-breadcrumb-item>
+          </el-breadcrumb>
+        </div>
         <div class="navbar-right">
           <el-input v-model="searchText" placeholder="搜索 IP 或 MAC..." class="search-input" clearable
             @keyup.enter="handleSearch">
@@ -74,23 +80,43 @@
       </el-header>
 
       <el-main>
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <transition name="fade-page" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
       </el-main>
     </el-container>
   </el-container>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { ElMessage } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const isCollapse = ref(false)
 const searchText = ref('')
+
+const pageTitle = computed(() => {
+  const titles = {
+    '/dashboard': '仪表盘',
+    '/switches': '交换机管理',
+    '/results': '扫描结果',
+    '/routes': '路由表',
+    '/subnets': '地址段管理',
+    '/history': '历史记录',
+    '/users': '用户管理',
+    '/profile': '个人设置',
+    '/search': '搜索结果',
+  }
+  // 处理动态路由 /switches/:id
+  const base = '/' + route.path.split('/')[1]
+  return titles[route.path] || titles[base] || ''
+})
 
 function handleSearch() {
   const q = searchText.value.trim()
@@ -131,6 +157,13 @@ function handleLogout() {
   background: #fff;
   border-bottom: 1px solid #e6e6e6;
   padding: 0 20px;
+  gap: 16px;
+}
+.navbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 .navbar-right {
   display: flex;
@@ -149,5 +182,19 @@ function handleLogout() {
 .username {
   font-size: 14px;
   color: #303133;
+}
+
+/* 页面过渡动画 */
+.fade-page-enter-active,
+.fade-page-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.fade-page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.fade-page-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
 }
 </style>

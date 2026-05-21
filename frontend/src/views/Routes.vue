@@ -13,6 +13,9 @@
     </el-form>
 
     <el-table :data="items" v-loading="loading" stripe style="width:100%">
+      <template #empty>
+        <el-empty description="暂无路由数据，请先对三层交换机执行扫描" :image-size="80" />
+      </template>
       <el-table-column type="index" width="50" />
       <el-table-column prop="switch_name" label="交换机" width="160" show-overflow-tooltip />
       <el-table-column prop="switch_ip" label="交换机IP" width="140" />

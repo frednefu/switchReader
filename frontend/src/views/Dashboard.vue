@@ -5,22 +5,54 @@
     <el-row :gutter="20" class="stat-row">
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <el-statistic title="活跃交换机" :value="stats.switch_count" />
+          <div class="stat-content">
+            <div class="stat-icon" style="background: linear-gradient(135deg, #409eff, #337ecc);">
+              <el-icon :size="24"><Monitor /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.switch_count }}</div>
+              <div class="stat-title">活跃交换机</div>
+            </div>
+          </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <el-statistic title="唯一 IP 地址" :value="stats.total_ips" />
+          <div class="stat-content">
+            <div class="stat-icon" style="background: linear-gradient(135deg, #67c23a, #529b2e);">
+              <el-icon :size="24"><Connection /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.total_ips }}</div>
+              <div class="stat-title">唯一 IP 地址</div>
+            </div>
+          </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <el-statistic title="MAC 地址" :value="stats.total_macs" />
+          <div class="stat-content">
+            <div class="stat-icon" style="background: linear-gradient(135deg, #e6a23c, #cf9236);">
+              <el-icon :size="24"><Discount /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.total_macs }}</div>
+              <div class="stat-title">MAC 地址</div>
+            </div>
+          </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <el-statistic title="管理子网" :value="stats.subnet_count" />
+          <div class="stat-content">
+            <div class="stat-icon" style="background: linear-gradient(135deg, #f56c6c, #e06060);">
+              <el-icon :size="24"><Grid /></el-icon>
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stats.subnet_count }}</div>
+              <div class="stat-title">管理子网</div>
+            </div>
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -157,5 +189,35 @@ onMounted(() => {
 }
 .stat-card {
   text-align: center;
+}
+.stat-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 0;
+}
+.stat-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+.stat-info {
+  text-align: left;
+}
+.stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: #303133;
+  line-height: 1.2;
+}
+.stat-title {
+  font-size: 13px;
+  color: #909399;
+  margin-top: 2px;
 }
 </style>
