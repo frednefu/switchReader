@@ -15,12 +15,12 @@
 
 ## 功能
 
-- **仪表盘** — 交换机/子网/IP/MAC 统计、地址段利用率图表、可用 IP 查询
-- **交换机管理** — CRUD、SNMP 连接测试、按交换机配置扫描间隔
-- **SNMP 扫描** — 自动识别 L2/L3 交换机，支持标准 MIB 和华为私有 MIB，数据合并
-- **扫描结果** — 主机信息（IP/MAC/VLAN/端口）翻页列表、路由表翻页列表
-- **地址段管理** — CRUD、IP 可用性计算
-- **搜索** — IP 或 MAC 快速查找
+- **仪表盘** — 交换机/子网/IP/MAC 统计、地址段利用率图表 (ECharts)、可用 IP 查询
+- **交换机管理** — CRUD、批量导入(Excel/CSV)、模板下载、SNMP 连接测试、扫描状态/结果展示
+- **SNMP 扫描** — 自动识别 L2/L3 交换机，支持标准 MIB 和华为私有 MIB，ARP+FDB 数据合并，空 IP 自动回填
+- **扫描结果** — 主机信息（IP/MAC/VLAN/端口/交换机来源）翻页列表、路由表翻页列表
+- **地址段管理** — CRUD、IP 可用性计算、利用率统计
+- **搜索** — IP 或 MAC 快速查找，关联交换机信息
 - **用户认证** — JWT + bcrypt，admin/user 角色
 
 ## 快速开始
@@ -92,6 +92,8 @@ npm run dev
 | CRUD | /api/switches | 交换机管理 |
 | POST | /api/switches/test | SNMP 连接测试 |
 | POST | /api/switches/{id}/scan | 触发扫描 |
+| GET | /api/switches/template | 下载导入模板 |
+| POST | /api/switches/import | 批量导入交换机 |
 | GET | /api/results | 扫描结果（分页+过滤） |
 | GET | /api/results/routes | 路由表（分页+过滤） |
 | GET | /api/scan-logs | 扫描日志 |

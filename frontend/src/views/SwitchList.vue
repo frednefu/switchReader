@@ -2,9 +2,23 @@
   <div class="switch-list">
     <div class="page-header">
       <h2>交换机管理</h2>
-      <el-button v-if="authStore.isAdmin" type="primary" @click="openCreate">
-        <el-icon><Plus /></el-icon>添加交换机
-      </el-button>
+      <div class="header-actions" v-if="authStore.isAdmin">
+        <el-button @click="downloadTemplate">
+          <el-icon><Download /></el-icon>下载模板
+        </el-button>
+        <el-upload
+          :show-file-list="false"
+          :before-upload="handleImport"
+          accept=".xlsx,.xls,.csv"
+        >
+          <el-button>
+            <el-icon><Upload /></el-icon>批量导入
+          </el-button>
+        </el-upload>
+        <el-button type="primary" @click="openCreate">
+          <el-icon><Plus /></el-icon>添加交换机
+        </el-button>
+      </div>
     </div>
 
     <el-card>
@@ -24,6 +38,23 @@
             {{ row.scan_interval > 0 ? row.scan_interval + 's' : '手动' }}
           </template>
         </el-table-column>
+        <el-table-column label="最后扫描" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="row.last_scan_status === 'success'" type="success" size="small">成功</el-tag>
+            <el-tag v-else-if="row.last_scan_status === 'failed'" type="danger" size="small">失败</el-tag>
+            <span v-else style="color:#c0c4cc;">未扫描</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="扫描结果" width="120">
+          <template #default="{ row }">
+            <template v-if="row.last_hosts_found > 0 || row.last_routes_found > 0">
+              <span title="主机数">{{ row.last_hosts_found }} 主机</span>
+              <span style="margin:0 4px;color:#dcdfe6;">|</span>
+              <span title="路由数">{{ row.last_routes_found }} 路由</span>
+            </template>
+            <span v-else style="color:#c0c4cc;">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="is_active" label="状态" width="80">
           <template #default="{ row }">
             <el-tag :type="row.is_active ? 'success' : 'info'" size="small">
@@ -31,10 +62,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="updated_at" label="更新时间" width="160">
-          <template #default="{ row }">{{ formatTime(row.updated_at) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="280" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button size="small" @click="$router.push(`/switches/${row.id}`)">详情</el-button>
             <el-button v-if="authStore.isAdmin" size="small" @click="handleScan(row)">
@@ -54,13 +82,31 @@
     </el-card>
 
     <SwitchFormDialog v-model:visible="dialogVisible" :edit-data="editData" @saved="fetchList" />
+
+    <el-dialog v-model="importDialogVisible" title="导入结果" width="420px">
+      <div v-if="importResult">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="新建">{{ importResult.created }}</el-descriptions-item>
+          <el-descriptions-item label="跳过(重复)">{{ importResult.skipped }}</el-descriptions-item>
+        </el-descriptions>
+        <div v-if="importResult.errors.length > 0" style="margin-top:12px;">
+          <p style="color:#f56c6c;">错误 ({{ importResult.errors.length }}):</p>
+          <ul style="max-height:200px;overflow:auto;font-size:13px;">
+            <li v-for="(e, i) in importResult.errors" :key="i">{{ e }}</li>
+          </ul>
+        </div>
+      </div>
+      <template #footer>
+        <el-button type="primary" @click="importDialogVisible=false;fetchList()">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/store/auth'
-import { getSwitches, triggerScan, deleteSwitch } from '@/api/switches'
+import { getSwitches, triggerScan, deleteSwitch, downloadTemplate, importSwitches } from '@/api/switches'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import SwitchFormDialog from '@/components/SwitchFormDialog.vue'
 
@@ -72,10 +118,14 @@ const size = ref(20)
 const total = ref(0)
 const dialogVisible = ref(false)
 const editData = ref(null)
+const importDialogVisible = ref(false)
+const importResult = ref(null)
 
 function formatTime(t) {
   if (!t) return ''
-  return new Date(t).toLocaleString('zh-CN')
+  const d = new Date(t)
+  if (isNaN(d.getTime())) return t
+  return d.toLocaleString('zh-CN', { hour12: false })
 }
 
 async function fetchList() {
@@ -87,6 +137,15 @@ async function fetchList() {
   } finally {
     loading.value = false
   }
+}
+
+async function handleImport(file) {
+  try {
+    const result = await importSwitches(file)
+    importResult.value = result
+    importDialogVisible.value = true
+  } catch { /* handled by interceptor */ }
+  return false // prevent auto-upload
 }
 
 function openCreate() {
@@ -130,6 +189,11 @@ onMounted(fetchList)
   margin-bottom: 16px;
 }
 .page-header h2 { margin: 0; }
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
 .pagination-wrap {
   display: flex;
   justify-content: center;

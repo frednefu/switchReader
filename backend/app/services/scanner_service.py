@@ -5,7 +5,7 @@ Reuses functions from switchReader/switchReader.py directly.
 import sys
 import os
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime
 
 from app.database import SessionLocal
 from app.models.switch import Switch
@@ -44,18 +44,37 @@ def _build_switch_config(switch: Switch) -> dict:
 
 
 def _store_host_results(db, switch_id: int, scan_log_id: int, host_data: list):
+    # Collect MAC->IP mappings from existing records across ALL switches
+    # to fill empty IPs in new data before deleting old records for this switch
+    mac_ip_map = {}
+    existing_rows = db.query(
+        ScanResult.mac_address, ScanResult.ip_address
+    ).filter(
+        ScanResult.ip_address != "",
+        ScanResult.ip_address.isnot(None),
+    ).order_by(ScanResult.id.desc()).all()
+    for mac, ip in existing_rows:
+        if mac and mac not in mac_ip_map:
+            mac_ip_map[mac] = ip
+
     db.query(ScanResult).filter(ScanResult.switch_id == switch_id).delete()
     for entry in host_data:
+        ip = _clean(entry.get("IP地址", ""))
+        mac = _clean(entry.get("MAC地址", ""))
+        # Fill empty IP from history if available
+        if not ip and mac and mac in mac_ip_map:
+            ip = mac_ip_map[mac]
         sr = ScanResult(
             switch_id=switch_id,
-            ip_address=_clean(entry.get("IP地址", "")),
-            mac_address=_clean(entry.get("MAC地址", "")),
+            ip_address=ip,
+            mac_address=mac,
             vlan_bd=entry.get("VLAN/BD"),
             vlan_type=_clean(entry.get("VLAN类型", "") or ""),
             physical_port=_clean(entry.get("物理端口", "") or ""),
             virtual_port=_clean(entry.get("虚拟端口", "") or ""),
             switch_type="L3" if entry.get("交换机类型") == "三层" else "L2",
             scan_log_id=scan_log_id,
+            created_at=datetime.now(),
         )
         db.add(sr)
 
@@ -73,6 +92,7 @@ def _store_route_results(db, switch_id: int, scan_log_id: int, route_data: list)
             route_type=_clean(entry.get("路由类型", "")),
             protocol=_clean(entry.get("协议", "")),
             scan_log_id=scan_log_id,
+            created_at=datetime.now(),
         )
         db.add(rt)
 
@@ -110,7 +130,7 @@ async def _run_scan_async(switch: Switch, scan_log_id: int):
             scan_log.hosts_found = len(host_data)
             scan_log.routes_found = len(route_data)
             scan_log.error_message = error_msg
-            scan_log.completed_at = datetime.now(timezone.utc)
+            scan_log.completed_at = datetime.now()
         db.commit()
     except Exception as e:
         db.rollback()
@@ -118,7 +138,7 @@ async def _run_scan_async(switch: Switch, scan_log_id: int):
         if scan_log:
             scan_log.status = ScanStatus.failed
             scan_log.error_message = str(e)
-            scan_log.completed_at = datetime.now(timezone.utc)
+            scan_log.completed_at = datetime.now()
         db.commit()
     finally:
         db.close()
@@ -132,6 +152,7 @@ async def trigger_scan(switch: Switch, triggered_by: TriggerType) -> int:
             switch_id=switch.id,
             status=ScanStatus.running,
             triggered_by=triggered_by,
+            started_at=datetime.now(),
         )
         db.add(scan_log)
         db.commit()

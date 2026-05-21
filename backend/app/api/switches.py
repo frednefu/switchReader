@@ -1,17 +1,62 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+import io
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from math import ceil
+import openpyxl
 
 from app.database import get_db
 from app.models.switch import Switch
 from app.models.scan_log import ScanLog, ScanStatus, TriggerType
-from app.schemas.switch import SwitchCreate, SwitchUpdate, SwitchOut
+from app.schemas.switch import (
+    SwitchCreate, SwitchUpdate, SwitchOut, SwitchTestRequest,
+    SwitchTestResponse, SwitchImportRow, SwitchImportResult,
+)
 from app.schemas.scan import ScanLogOut, PaginatedResponse
-from app.schemas.switch import SwitchCreate, SwitchUpdate, SwitchOut, SwitchTestRequest, SwitchTestResponse
 from app.api.deps import get_current_user, require_admin
 from app.services.scanner_service import trigger_scan, test_snmp_connection
 
 router = APIRouter(prefix="/switches", tags=["交换机"])
+
+
+def _latest_scan_subquery(db: Session):
+    """Subquery: for each switch_id, get the latest completed scan_log id."""
+    return (
+        db.query(
+            ScanLog.switch_id,
+            func.max(ScanLog.id).label("max_id"),
+        )
+        .filter(ScanLog.status != ScanStatus.running)
+        .group_by(ScanLog.switch_id)
+        .subquery()
+    )
+
+
+def _enrich_with_scan_info(db: Session, switches: list) -> list[dict]:
+    """Add last_scan_status, last_hosts_found, last_routes_found to switch dicts."""
+    if not switches:
+        return []
+    switch_ids = [s.id for s in switches]
+    sub = _latest_scan_subquery(db)
+    rows = (
+        db.query(ScanLog)
+        .join(sub, ScanLog.id == sub.c.max_id)
+        .filter(ScanLog.switch_id.in_(switch_ids))
+        .all()
+    )
+    scan_map = {r.switch_id: r for r in rows}
+    result = []
+    for s in switches:
+        d = SwitchOut.model_validate(s).model_dump()
+        latest = scan_map.get(s.id)
+        if latest:
+            d["last_scan_status"] = latest.status.value if hasattr(latest.status, 'value') else latest.status
+            d["last_hosts_found"] = latest.hosts_found or 0
+            d["last_routes_found"] = latest.routes_found or 0
+            d["last_scan_time"] = latest.completed_at
+        result.append(d)
+    return result
 
 
 @router.get("", response_model=PaginatedResponse)
@@ -33,8 +78,9 @@ def list_switches(
     total = q.count()
     pages = ceil(total / size) if total > 0 else 0
     items = q.order_by(Switch.id).offset((page - 1) * size).limit(size).all()
+    enriched = _enrich_with_scan_info(db, items)
     return PaginatedResponse(
-        items=[SwitchOut.model_validate(s) for s in items],
+        items=enriched,
         total=total, page=page, size=size, pages=pages,
     )
 
@@ -49,6 +95,98 @@ def create_switch(body: SwitchCreate, db: Session = Depends(get_db), admin=Depen
     db.commit()
     db.refresh(sw)
     return SwitchOut.model_validate(sw)
+
+
+@router.get("/template")
+def download_template(current_user=Depends(get_current_user)):
+    """Download an Excel template for batch import."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "交换机导入模板"
+    headers = ["名称", "IP地址", "SNMP团体字", "MIB类型", "SNMP端口", "扫描间隔(秒)"]
+    ws.append(headers)
+    # Example row
+    ws.append(["示例-核心交换机", "192.168.1.1", "public", "huawei", 161, 3600])
+    # Column widths
+    widths = [20, 16, 16, 12, 12, 14]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=switch_import_template.xlsx"},
+    )
+
+
+@router.post("/import", response_model=SwitchImportResult)
+async def import_switches(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+):
+    if not file.filename.endswith(('.xlsx', '.xls', '.csv')):
+        raise HTTPException(status_code=400, detail="仅支持 .xlsx / .xls / .csv 格式")
+
+    content = await file.read()
+    rows = []
+
+    if file.filename.endswith('.csv'):
+        import csv
+        reader = csv.DictReader(io.StringIO(content.decode('utf-8-sig')))
+        for r in reader:
+            rows.append({
+                "name": r.get("名称", "").strip(),
+                "ip_address": r.get("IP地址", "").strip(),
+                "community": r.get("SNMP团体字", "").strip(),
+                "mib_type": r.get("MIB类型", "standard").strip() or "standard",
+                "snmp_port": int(r.get("SNMP端口", 161) or 161),
+                "scan_interval": int(r.get("扫描间隔(秒)", 3600) or 3600),
+            })
+    else:
+        wb = openpyxl.load_workbook(io.BytesIO(content))
+        ws = wb.active
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row or not row[0] or not row[1]:
+                continue
+            rows.append({
+                "name": str(row[0]).strip(),
+                "ip_address": str(row[1]).strip(),
+                "community": str(row[2]).strip() if row[2] else "",
+                "mib_type": str(row[3] or "standard").strip() or "standard",
+                "snmp_port": int(row[4] or 161) if row[4] else 161,
+                "scan_interval": int(row[5] or 3600) if row[5] else 3600,
+            })
+
+    created = 0
+    skipped = 0
+    errors = []
+    seen_ips = set()
+
+    for r in rows:
+        if not r["name"] or not r["ip_address"] or not r["community"]:
+            errors.append(f"缺少必填字段: {r}")
+            continue
+        if r["ip_address"] in seen_ips:
+            skipped += 1
+            continue
+        seen_ips.add(r["ip_address"])
+        existing = db.query(Switch).filter(Switch.ip_address == r["ip_address"]).first()
+        if existing:
+            skipped += 1
+            continue
+        try:
+            sw = Switch(**r, created_by=admin.id)
+            db.add(sw)
+            created += 1
+        except Exception as e:
+            errors.append(f"{r['ip_address']}: {e}")
+
+    db.commit()
+    return SwitchImportResult(created=created, skipped=skipped, errors=errors)
 
 
 @router.get("/{switch_id}", response_model=SwitchOut)

@@ -29,7 +29,10 @@
       <el-col :span="14">
         <el-card shadow="hover">
           <template #header><strong>地址段利用率</strong></template>
-          <div ref="chartRef" style="height: 350px;"></div>
+          <div v-if="subnets.length === 0" style="text-align:center;color:#909399;padding:60px 0;">
+            暂无地址段数据，请先在「地址段管理」中添加地址段
+          </div>
+          <div v-else ref="chartRef" style="height: 350px;"></div>
         </el-card>
       </el-col>
       <el-col :span="10">

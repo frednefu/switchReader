@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -38,6 +38,10 @@ class SwitchOut(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    last_scan_status: Optional[str] = None
+    last_hosts_found: int = 0
+    last_routes_found: int = 0
+    last_scan_time: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -52,3 +56,18 @@ class SwitchTestRequest(BaseModel):
 class SwitchTestResponse(BaseModel):
     ok: bool
     message: str
+
+
+class SwitchImportRow(BaseModel):
+    name: str
+    ip_address: str
+    community: str
+    mib_type: str = "standard"
+    snmp_port: int = 161
+    scan_interval: int = 3600
+
+
+class SwitchImportResult(BaseModel):
+    created: int
+    skipped: int
+    errors: List[str]

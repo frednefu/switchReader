@@ -1,14 +1,31 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from math import ceil
 
 from app.database import get_db
 from app.models.scan_result import ScanResult
 from app.models.route_table import RouteTable
+from app.models.switch import Switch
 from app.schemas.scan import ScanResultOut, RouteTableOut, PaginatedResponse
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/results", tags=["扫描结果"])
+
+
+def _enrich_result(row: ScanResult) -> dict:
+    d = ScanResultOut.model_validate(row).model_dump()
+    if row.switch:
+        d["switch_name"] = row.switch.name
+        d["switch_ip"] = row.switch.ip_address
+    return d
+
+
+def _enrich_route(row: RouteTable) -> dict:
+    d = RouteTableOut.model_validate(row).model_dump()
+    if row.switch:
+        d["switch_name"] = row.switch.name
+        d["switch_ip"] = row.switch.ip_address
+    return d
 
 
 @router.get("", response_model=PaginatedResponse)
@@ -21,18 +38,24 @@ def list_results(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    q = db.query(ScanResult)
+    base = db.query(ScanResult)
     if switch_id:
-        q = q.filter(ScanResult.switch_id == switch_id)
+        base = base.filter(ScanResult.switch_id == switch_id)
     if mac:
-        q = q.filter(ScanResult.mac_address.contains(mac))
+        base = base.filter(ScanResult.mac_address.contains(mac))
     if ip:
-        q = q.filter(ScanResult.ip_address.contains(ip))
-    total = q.count()
+        base = base.filter(ScanResult.ip_address.contains(ip))
+    total = base.count()
     pages = ceil(total / size) if total > 0 else 0
-    items = q.order_by(ScanResult.id.desc()).offset((page - 1) * size).limit(size).all()
+    items = (
+        base.options(joinedload(ScanResult.switch))
+        .order_by(ScanResult.id.desc())
+        .offset((page - 1) * size)
+        .limit(size)
+        .all()
+    )
     return PaginatedResponse(
-        items=[ScanResultOut.model_validate(r) for r in items],
+        items=[_enrich_result(r) for r in items],
         total=total, page=page, size=size, pages=pages,
     )
 
@@ -46,15 +69,21 @@ def list_routes(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    q = db.query(RouteTable)
+    base = db.query(RouteTable)
     if switch_id:
-        q = q.filter(RouteTable.switch_id == switch_id)
+        base = base.filter(RouteTable.switch_id == switch_id)
     if cidr:
-        q = q.filter(RouteTable.cidr.contains(cidr))
-    total = q.count()
+        base = base.filter(RouteTable.cidr.contains(cidr))
+    total = base.count()
     pages = ceil(total / size) if total > 0 else 0
-    items = q.order_by(RouteTable.id.desc()).offset((page - 1) * size).limit(size).all()
+    items = (
+        base.options(joinedload(RouteTable.switch))
+        .order_by(RouteTable.id.desc())
+        .offset((page - 1) * size)
+        .limit(size)
+        .all()
+    )
     return PaginatedResponse(
-        items=[RouteTableOut.model_validate(r) for r in items],
+        items=[_enrich_route(r) for r in items],
         total=total, page=page, size=size, pages=pages,
     )

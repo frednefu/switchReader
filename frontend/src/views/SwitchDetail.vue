@@ -112,7 +112,7 @@ const rtPage = ref(1); const rtSize = ref(50); const routesTotal = ref(0)
 
 const switchId = () => route.params.id
 
-function formatTime(t) { return t ? new Date(t).toLocaleString('zh-CN') : '' }
+function formatTime(t) { if (!t) return ''; const d = new Date(t); if (isNaN(d.getTime())) return t; return d.toLocaleString('zh-CN', { hour12: false }) }
 function statusTag(s) { return s === 'success' ? 'success' : s === 'failed' ? 'danger' : 'warning' }
 function statusText(s) { return s === 'success' ? '成功' : s === 'failed' ? '失败' : '扫描中' }
 

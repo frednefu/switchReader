@@ -15,20 +15,24 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="items" v-loading="loading" stripe>
+    <el-table :data="items" v-loading="loading" stripe style="width:100%">
       <el-table-column type="index" width="50" />
-      <el-table-column prop="ip_address" label="IP 地址" min-width="140" />
-      <el-table-column prop="mac_address" label="MAC 地址" min-width="150" />
+      <el-table-column prop="switch_name" label="交换机" width="160" show-overflow-tooltip />
+      <el-table-column prop="switch_ip" label="交换机IP" width="140" />
+      <el-table-column prop="ip_address" label="IP 地址" width="140" />
+      <el-table-column prop="mac_address" label="MAC 地址" width="150" />
       <el-table-column prop="vlan_bd" label="VLAN/BD" width="90">
         <template #default="{ row }">{{ row.vlan_bd ?? '-' }}</template>
       </el-table-column>
       <el-table-column prop="vlan_type" label="VLAN类型" width="100" />
-      <el-table-column prop="physical_port" label="物理端口" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="virtual_port" label="虚拟端口" min-width="140" show-overflow-tooltip />
-      <el-table-column prop="switch_type" label="交换机类型" width="100" />
+      <el-table-column prop="physical_port" label="物理端口" min-width="160" show-overflow-tooltip />
+      <el-table-column prop="virtual_port" label="虚拟端口" min-width="160" show-overflow-tooltip />
+      <el-table-column prop="switch_type" label="类型" width="70">
+        <template #default="{ row }">{{ row.switch_type === 'L3' ? '三层' : '二层' }}</template>
+      </el-table-column>
       <el-table-column label="更新时间" width="170">
         <template #default="{ row }">
-          {{ new Date(row.created_at).toLocaleString() }}
+          {{ formatTime(row.created_at) }}
         </template>
       </el-table-column>
     </el-table>
@@ -55,6 +59,13 @@ const page = ref(1)
 const size = ref(50)
 const total = ref(0)
 const filters = reactive({ ip: '', mac: '' })
+
+function formatTime(t) {
+  if (!t) return ''
+  const d = new Date(t)
+  if (isNaN(d.getTime())) return t
+  return d.toLocaleString('zh-CN', { hour12: false })
+}
 
 async function fetchData() {
   loading.value = true

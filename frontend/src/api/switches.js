@@ -27,3 +27,22 @@ export function triggerScan(id) {
 export function testSwitchConnection(data) {
   return api.post('/switches/test', data).then((r) => r.data)
 }
+
+export function importSwitches(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return api.post('/switches/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }).then((r) => r.data)
+}
+
+export function downloadTemplate() {
+  return api.get('/switches/template', { responseType: 'blob' }).then((r) => {
+    const url = URL.createObjectURL(r.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'switch_import_template.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+  })
+}

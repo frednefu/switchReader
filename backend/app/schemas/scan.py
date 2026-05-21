@@ -6,6 +6,8 @@ from datetime import datetime
 class ScanResultOut(BaseModel):
     id: int
     switch_id: int
+    switch_name: str = ""
+    switch_ip: str = ""
     ip_address: str
     mac_address: str
     vlan_bd: Optional[int] = None
@@ -22,6 +24,8 @@ class ScanResultOut(BaseModel):
 class RouteTableOut(BaseModel):
     id: int
     switch_id: int
+    switch_name: str = ""
+    switch_ip: str = ""
     target_network: str
     subnet_mask: str
     cidr: str

@@ -20,7 +20,7 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
         ScanResult.ip_address != ""
     ).scalar() or 0
     total_macs = db.query(func.count(func.distinct(ScanResult.mac_address))).scalar() or 0
-    subnet_count = db.query(func.count(Subnet.id)).filter(Subnet.is_managed == True).scalar() or 0
+    subnet_count = db.query(func.count(Subnet.id)).scalar() or 0
 
     return DashboardStats(
         switch_count=switch_count,

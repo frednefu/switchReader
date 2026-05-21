@@ -14,11 +14,37 @@ def _ip_to_int(ip: str) -> int:
         return 0
 
 
+def _used_ips_in_subnet(db: Session, net_int: int, broad_int: int) -> set:
+    """Return set of IPs from scan_results that fall within the given network range."""
+    used = set()
+    rows = db.query(ScanResult.ip_address).filter(
+        ScanResult.ip_address != "",
+        ScanResult.ip_address.isnot(None),
+    ).all()
+    for (ip,) in rows:
+        ip_int = _ip_to_int(ip)
+        if net_int < ip_int < broad_int:
+            used.add(ip)
+    return used
+
+
 def get_subnet_utilization(db: Session) -> list[dict]:
     """For each managed subnet, calculate total/used/free IPs."""
     from app.models.subnet import Subnet
 
-    subnets = db.query(Subnet).filter(Subnet.is_managed == True).all()
+    subnets = db.query(Subnet).all()
+    if not subnets:
+        return []
+
+    # Batch-collect all used IPs to avoid repeated scans
+    all_used_ips = set()
+    all_ip_rows = db.query(ScanResult.ip_address).filter(
+        ScanResult.ip_address != "",
+        ScanResult.ip_address.isnot(None),
+    ).all()
+    for (ip,) in all_ip_rows:
+        all_used_ips.add(ip)
+
     result = []
     for sn in subnets:
         try:
@@ -30,22 +56,12 @@ def get_subnet_utilization(db: Session) -> list[dict]:
         if total < 0:
             total = 0
 
-        # Count used IPs within this subnet
         net_int = int(net.network_address)
         broad_int = int(net.broadcast_address)
-        used = db.query(func.count(ScanResult.id)).filter(
-            ScanResult.ip_address != "",
-            ScanResult.ip_address.isnot(None),
-        ).all()[0][0]
 
-        # We can't easily do range check in pure SQL without INET_ATON,
-        # so count from Python side for accuracy
         used = 0
-        rows = db.query(ScanResult.ip_address).filter(
-            ScanResult.ip_address != "",
-        ).all()
-        for (ip,) in rows:
-            ip_int = _ip_to_int(ip)
+        for ip_str in all_used_ips:
+            ip_int = _ip_to_int(ip_str)
             if net_int < ip_int < broad_int:
                 used += 1
 
@@ -80,14 +96,9 @@ def get_available_ips(db: Session, subnet_id: int, limit: int = 50) -> dict:
         return {"subnet_cidr": sn.subnet_cidr, "available_ips": [], "total_free": 0}
 
     # Collect all used IPs in this subnet
-    used_ips = set()
     net_int = int(net.network_address)
     broad_int = int(net.broadcast_address)
-    rows = db.query(ScanResult.ip_address).filter(ScanResult.ip_address != "").all()
-    for (ip,) in rows:
-        ip_int = _ip_to_int(ip)
-        if net_int < ip_int < broad_int:
-            used_ips.add(ip)
+    used = _used_ips_in_subnet(db, net_int, broad_int)
 
     # Exclude network, broadcast, and gateway
     excluded = {str(net.network_address), str(net.broadcast_address)}
@@ -97,13 +108,16 @@ def get_available_ips(db: Session, subnet_id: int, limit: int = 50) -> dict:
     free = []
     for host in net.hosts():
         ip_str = str(host)
-        if ip_str not in used_ips and ip_str not in excluded:
+        if ip_str not in used and ip_str not in excluded:
             free.append(ip_str)
             if len(free) >= limit:
                 break
 
+    usable = net.num_addresses - 2
+    total_free = max(0, usable - len(used - excluded))
+
     return {
         "subnet_cidr": sn.subnet_cidr,
         "available_ips": free,
-        "total_free": max(0, net.num_addresses - 2 - len(used_ips) - len(excluded & used_ips)),
+        "total_free": total_free,
     }

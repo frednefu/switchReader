@@ -12,8 +12,10 @@
       </el-form-item>
     </el-form>
 
-    <el-table :data="items" v-loading="loading" stripe>
+    <el-table :data="items" v-loading="loading" stripe style="width:100%">
       <el-table-column type="index" width="50" />
+      <el-table-column prop="switch_name" label="交换机" width="160" show-overflow-tooltip />
+      <el-table-column prop="switch_ip" label="交换机IP" width="140" />
       <el-table-column prop="target_network" label="目标网络" min-width="140" />
       <el-table-column prop="subnet_mask" label="子网掩码" min-width="140" />
       <el-table-column prop="cidr" label="CIDR" min-width="160" />
@@ -23,7 +25,7 @@
       <el-table-column prop="protocol" label="协议" width="80" />
       <el-table-column label="更新时间" width="170">
         <template #default="{ row }">
-          {{ new Date(row.created_at).toLocaleString() }}
+          {{ formatTime(row.created_at) }}
         </template>
       </el-table-column>
     </el-table>
@@ -50,6 +52,13 @@ const page = ref(1)
 const size = ref(50)
 const total = ref(0)
 const filters = reactive({ cidr: '' })
+
+function formatTime(t) {
+  if (!t) return ''
+  const d = new Date(t)
+  if (isNaN(d.getTime())) return t
+  return d.toLocaleString('zh-CN', { hour12: false })
+}
 
 async function fetchData() {
   loading.value = true
