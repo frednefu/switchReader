@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.idea/
+
+# Output
+*.xlsx
+
+# Claude local settings
+.claude/
