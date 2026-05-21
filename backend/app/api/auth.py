@@ -29,6 +29,11 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 @router.put("/profile", response_model=UserOut)
 def update_profile(body: ProfileUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if body.email is not None:
+        existing = db.query(User).filter(User.email == body.email, User.id != current_user.id).first()
+        if existing:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="邮箱已被其他用户使用")
+        current_user.email = body.email
     if body.avatar_url is not None:
         current_user.avatar_url = body.avatar_url
     db.commit()

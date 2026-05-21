@@ -23,6 +23,7 @@ class UserUpdate(BaseModel):
 
 class ProfileUpdate(BaseModel):
     avatar_url: Optional[str] = None
+    email: Optional[str] = None
 
 
 class PasswordChange(BaseModel):

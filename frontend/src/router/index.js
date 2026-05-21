@@ -64,15 +64,13 @@ const routes = [
       {
         path: 'users',
         name: 'Users',
-        component: () => import('@/views/Placeholder.vue'),
-        props: { title: '用户管理' },
+        component: () => import('@/views/UserManage.vue'),
         meta: { title: '用户管理', admin: true },
       },
       {
         path: 'profile',
         name: 'Profile',
-        component: () => import('@/views/Placeholder.vue'),
-        props: { title: '个人设置' },
+        component: () => import('@/views/Profile.vue'),
         meta: { title: '个人设置' },
       },
     ],
@@ -90,6 +88,8 @@ router.beforeEach((to, from, next) => {
     next()
   } else if (!authStore.token) {
     next('/login')
+  } else if (to.meta.admin && !authStore.isAdmin) {
+    next('/dashboard')
   } else {
     next()
   }

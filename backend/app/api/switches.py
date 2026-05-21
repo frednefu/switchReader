@@ -16,6 +16,7 @@ from app.schemas.switch import (
 from app.schemas.scan import ScanLogOut, PaginatedResponse
 from app.api.deps import get_current_user, require_admin
 from app.services.scanner_service import trigger_scan, test_snmp_connection
+from app.services.scheduler_service import refresh_job
 
 router = APIRouter(prefix="/switches", tags=["交换机"])
 
@@ -94,6 +95,8 @@ def create_switch(body: SwitchCreate, db: Session = Depends(get_db), admin=Depen
     db.add(sw)
     db.commit()
     db.refresh(sw)
+    if sw.is_active and sw.scan_interval > 0:
+        refresh_job(sw.id, sw.scan_interval)
     return SwitchOut.model_validate(sw)
 
 
@@ -206,6 +209,7 @@ def update_switch(switch_id: int, body: SwitchUpdate, db: Session = Depends(get_
         setattr(sw, key, val)
     db.commit()
     db.refresh(sw)
+    refresh_job(sw.id, sw.scan_interval if sw.is_active else 0)
     return SwitchOut.model_validate(sw)
 
 
@@ -216,6 +220,7 @@ def delete_switch(switch_id: int, db: Session = Depends(get_db), admin=Depends(r
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="交换机不存在")
     db.delete(sw)
     db.commit()
+    refresh_job(switch_id, 0)
     return {"message": "交换机已删除"}
 
 

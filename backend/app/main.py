@@ -10,12 +10,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
 from app.models import User, Switch, ScanResult, RouteTable, ScanLog, Subnet, History
 from app.api.router import api_router
+from app.services.scheduler_service import start_scheduler, shutdown_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    start_scheduler()
     yield
+    shutdown_scheduler()
 
 
 app = FastAPI(title="IPAM API", version="1.0.0", lifespan=lifespan)
