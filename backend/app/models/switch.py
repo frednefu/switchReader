@@ -29,3 +29,4 @@ class Switch(Base):
     scan_results = relationship("ScanResult", back_populates="switch", cascade="all, delete-orphan")
     route_tables = relationship("RouteTable", back_populates="switch", cascade="all, delete-orphan")
     scan_logs = relationship("ScanLog", back_populates="switch", cascade="all, delete-orphan")
+    history_records = relationship("History", back_populates="switch", cascade="all, delete-orphan")

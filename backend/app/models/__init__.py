@@ -4,5 +4,6 @@ from app.models.scan_result import ScanResult
 from app.models.route_table import RouteTable
 from app.models.scan_log import ScanLog
 from app.models.subnet import Subnet
+from app.models.history import History
 
-__all__ = ["User", "Switch", "ScanResult", "RouteTable", "ScanLog", "Subnet"]
+__all__ = ["User", "Switch", "ScanResult", "RouteTable", "ScanLog", "Subnet", "History"]

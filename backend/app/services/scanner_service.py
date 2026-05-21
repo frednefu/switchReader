@@ -13,6 +13,7 @@ from app.models.scan_log import ScanLog, ScanStatus, TriggerType
 from app.models.scan_result import ScanResult
 from app.models.route_table import RouteTable
 from app.config import settings
+from app.services.history_service import detect_changes
 
 # Ensure switchReader is importable
 _sw_reader_dir = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'switchReader')
@@ -57,7 +58,17 @@ def _store_host_results(db, switch_id: int, scan_log_id: int, host_data: list):
         if mac and mac not in mac_ip_map:
             mac_ip_map[mac] = ip
 
+    # Snapshot old data for change detection (before DELETE)
+    old_rows = db.query(ScanResult).filter(ScanResult.switch_id == switch_id).all()
+    old_by_key = {}
+    for r in old_rows:
+        old_by_key[(r.ip_address, r.mac_address)] = r
+
+    # Delete old data for this switch
     db.query(ScanResult).filter(ScanResult.switch_id == switch_id).delete()
+
+    # Insert new data
+    new_by_key = {}
     for entry in host_data:
         ip = _clean(entry.get("IP地址", ""))
         mac = _clean(entry.get("MAC地址", ""))
@@ -77,6 +88,10 @@ def _store_host_results(db, switch_id: int, scan_log_id: int, host_data: list):
             created_at=datetime.now(),
         )
         db.add(sr)
+        new_by_key[(ip, mac)] = sr
+
+    # Detect changes and write history
+    detect_changes(db, switch_id, scan_log_id, old_by_key, new_by_key)
 
 
 def _store_route_results(db, switch_id: int, scan_log_id: int, route_data: list):

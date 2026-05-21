@@ -58,8 +58,7 @@ const routes = [
       {
         path: 'history',
         name: 'History',
-        component: () => import('@/views/Placeholder.vue'),
-        props: { title: '历史记录' },
+        component: () => import('@/views/History.vue'),
         meta: { title: '历史记录' },
       },
       {
