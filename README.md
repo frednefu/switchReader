@@ -23,9 +23,9 @@
 - **搜索** — IP 或 MAC 快速查找，关联交换机信息
 - **历史记录** — 以 (IP, MAC, 物理端口) 为复合键增量保存，字段无变化时只更新时间戳不产生历史，变化时自动记录新增/删除/修改，支持按 IP/MAC/交换机/日期范围过滤，变更字段新旧值对比
 - **用户认证** — JWT + bcrypt，admin/user 角色
-- **用户管理** — 管理员可增删改查用户、重置密码、禁用账号
+- **用户管理** — 管理员可创建/编辑/删除/重置密码用户，搜索过滤，角色和状态管理
 - **个人设置** — 修改邮箱、修改密码
-- **定时任务** — APScheduler 自动按交换机配置的间隔周期扫描
+- **定时扫描** — APScheduler 后台调度，按交换机配置的扫描间隔自动触发 SNMP 采集
 
 ## 快速开始
 
@@ -70,19 +70,18 @@ npm run dev
 │   │   ├── database.py          # SQLAlchemy engine
 │   │   ├── models/              # User, Switch, ScanResult, RouteTable, ScanLog, Subnet, History
 │   │   ├── schemas/             # Pydantic 请求/响应
-│   │   ├── api/                 # auth, switches, results, history, scan_logs, dashboard, subnets, search
-│   │   ├── services/            # scanner_service, subnet_service, history_service
+│   │   ├── api/                 # auth, switches, results, history, scan_logs, dashboard, subnets, search, users
 │   │   ├── services/            # scanner_service, subnet_service, history_service, scheduler_service
 │   │   └── utils/               # security (JWT, bcrypt)
 │   ├── seed.py                  # 默认用户初始化
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── views/               # Login, Dashboard, SwitchList, SwitchDetail, Results, Routes, SubnetManage, SearchResult, History
+│   │   ├── views/               # Login, Dashboard, SwitchList, SwitchDetail, Results, Routes, SubnetManage, SearchResult, History, UserManage, Profile
 │   │   ├── components/          # AppLayout, SwitchFormDialog
-│   │   ├── api/                 # Axios 封装（auth, switches, results, history）
+│   │   ├── api/                 # Axios 封装（auth, switches, results, history, users）
 │   │   ├── store/               # Pinia auth
-│   │   └── router/              # Vue Router
+│   │   └── router/              # Vue Router（含 admin 角色守卫）
 │   └── nginx.conf
 └── switchReader/
     └── switchReader.py          # SNMP 采集引擎（Web 后端复用）
@@ -112,10 +111,10 @@ npm run dev
 | GET | /api/history | 历史记录（分页+过滤） |
 | GET | /api/history/ip/{ip} | 某 IP 的 MAC 变更历史 |
 | GET | /api/history/mac/{mac} | 某 MAC 的 IP 变更历史 |
+| PUT | /api/auth/profile | 修改个人资料（邮箱等） |
+| PUT | /api/auth/change-password | 修改密码 |
 | CRUD | /api/users | 用户管理（管理员） |
 | PUT | /api/users/{id}/reset-password | 重置用户密码（管理员） |
-| PUT | /api/auth/profile | 更新个人信息（邮箱） |
-| PUT | /api/auth/change-password | 修改密码 |
 
 ## 交换机配置
 
