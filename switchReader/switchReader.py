@@ -382,7 +382,7 @@ async def _scan_l2_switch(slim, ip, community, mib_pref='standard'):
             "交换机IP": ip,
             "IP地址": "",
             "MAC地址": mac,
-            "VLAN/BD": str(info["vlan"]) if info.get("vlan") is not None else "",
+            "VLAN/BD": info.get("vlan"),
             "VLAN类型": info.get("vlan_type", ""),
             "端口": info["port"],
             "交换机类型": "二层",
@@ -441,7 +441,7 @@ async def _scan_l3_switch(slim, ip, community, mib_pref='standard'):
             "交换机IP": ip,
             "IP地址": ip_addr,
             "MAC地址": mac,
-            "VLAN/BD": str(fdb_info["vlan"]) if fdb_info.get("vlan") is not None else "",
+            "VLAN/BD": fdb_info.get("vlan"),
             "VLAN类型": fdb_info.get("vlan_type", ""),
             "端口": port,
             "交换机类型": "三层",
@@ -454,7 +454,7 @@ async def _scan_l3_switch(slim, ip, community, mib_pref='standard'):
                 "交换机IP": ip,
                 "IP地址": "",
                 "MAC地址": mac,
-                "VLAN/BD": str(fdb_info["vlan"]) if fdb_info.get("vlan") is not None else "",
+                "VLAN/BD": fdb_info.get("vlan"),
                 "VLAN类型": fdb_info.get("vlan_type", ""),
                 "端口": fdb_info.get("port", ""),
                 "交换机类型": "三层",
@@ -507,6 +507,8 @@ def main():
 
     if all_data:
         df = pd.DataFrame(all_data)
+        # 将 VLAN/BD 列转为可空整数，避免 Excel 中显示为 1.0 等浮点数
+        df['VLAN/BD'] = df['VLAN/BD'].astype('Int64')
         df.to_excel("network_report.xlsx", index=False)
         print(f"\n扫描完成，共 {len(all_data)} 条记录，已保存至 network_report.xlsx")
     else:
