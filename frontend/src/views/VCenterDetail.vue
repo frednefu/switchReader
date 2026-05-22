@@ -23,10 +23,13 @@
         </el-tag>
       </el-descriptions-item>
       <el-descriptions-item label="扫描状态">
-        <el-tag v-if="vcenter.last_scan_status === 'success'" type="success" size="small">成功</el-tag>
-        <el-tag v-else-if="vcenter.last_scan_status === 'failed'" type="danger" size="small">失败</el-tag>
-        <el-tag v-else-if="vcenter.last_scan_status === 'running'" type="warning" size="small">扫描中</el-tag>
-        <span v-else style="color:#c0c4cc;">未扫描</span>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <el-tag v-if="vcenter.last_scan_status === 'success'" type="success" size="small">成功</el-tag>
+          <el-tag v-else-if="vcenter.last_scan_status === 'failed'" type="danger" size="small">失败</el-tag>
+          <el-tag v-else-if="vcenter.last_scan_status === 'running'" type="warning" size="small">扫描中</el-tag>
+          <span v-else style="color:#c0c4cc;">未扫描</span>
+          <span v-if="vcenter.last_scan_duration" style="color:#909399;font-size:12px;">耗时 {{ vcenter.last_scan_duration }}s</span>
+        </div>
       </el-descriptions-item>
     </el-descriptions>
 
@@ -39,7 +42,7 @@
         <span>虚拟机清单（共 {{ total }} 台）</span>
       </template>
       <div class="filter-bar">
-        <el-input v-model="search" placeholder="搜索 VM 名称或 IP..." clearable style="width:280px"
+        <el-input v-model="search" placeholder="搜索名称、IP、MAC、OS、集群、主机、网络、文件夹..." clearable style="width:380px"
           @keyup.enter="fetchVMs" @clear="fetchVMs" />
         <el-button type="primary" @click="fetchVMs">查询</el-button>
       </div>

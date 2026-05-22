@@ -10,8 +10,10 @@ from app.database import SessionLocal
 from app.models.switch import Switch
 from app.models.scan_log import ScanLog, ScanStatus, TriggerType
 from app.models.vcenter import VCenter
+from app.models.f5 import F5Device
 from app.services.scanner_service import _run_scan_async
 from app.services.vcenter_scanner_service import _run_vcenter_scan_async
+from app.services.f5_scanner_service import _run_f5_scan_async
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +78,9 @@ def start_scheduler():
         vcenters = db.query(VCenter).filter(VCenter.is_active == True, VCenter.scan_interval > 0).all()
         for vc in vcenters:
             _add_vcenter_job(vc.id, vc.scan_interval)
+        f5_devices = db.query(F5Device).filter(F5Device.is_active == True, F5Device.scan_interval > 0).all()
+        for dev in f5_devices:
+            _add_f5_job(dev.id, dev.scan_interval)
     finally:
         db.close()
 
@@ -129,6 +134,41 @@ def _add_vcenter_job(vcenter_id: int, scan_interval: int):
         trigger=IntervalTrigger(seconds=scan_interval),
         id=f"vcenter_{vcenter_id}",
         args=[vcenter_id],
+        replace_existing=True,
+        misfire_grace_time=60,
+    )
+
+
+def _f5_scan_job(f5_device_id: int):
+    """单个 F5 设备扫描 job（在独立线程中运行）。"""
+    db = SessionLocal()
+    try:
+        dev = db.query(F5Device).get(f5_device_id)
+        if not dev or not dev.is_active or dev.last_scan_status == "running":
+            return
+        asyncio.run(_run_f5_scan_async(f5_device_id))
+    except Exception:
+        logger.exception("F5 定时扫描失败 f5_device_id=%s", f5_device_id)
+    finally:
+        db.close()
+
+
+def refresh_f5_job(f5_device_id: int, scan_interval: int):
+    """更新或移除单个 F5 设备的调度任务。"""
+    job_id = f"f5_{f5_device_id}"
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+    if scan_interval > 0 and scheduler.running:
+        _add_f5_job(f5_device_id, scan_interval)
+
+
+def _add_f5_job(f5_device_id: int, scan_interval: int):
+    """添加单个 F5 设备的定时扫描任务。"""
+    scheduler.add_job(
+        _f5_scan_job,
+        trigger=IntervalTrigger(seconds=scan_interval),
+        id=f"f5_{f5_device_id}",
+        args=[f5_device_id],
         replace_existing=True,
         misfire_grace_time=60,
     )

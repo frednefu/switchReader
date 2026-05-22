@@ -1,6 +1,7 @@
 """变更检测：以 (IP, MAC) 为复合键比较新旧扫描结果，生成历史记录。
 
 vCenter 以 (vm_name, vcenter_id) 为复合键。
+F5 以 (vs_name, domain_name) 为复合键。
 """
 import json
 from app.models.history import History, ChangeType, SourceType
@@ -170,6 +171,73 @@ def detect_vcenter_changes(db, vcenter_id: int, vcenter_name: str,
         if old_row is not None and _vcenter_fields_differ(old_row, new_row):
             db.add(_make_vcenter_entry(ChangeType.modified, new_row, old_row,
                                        vcenter_id, vcenter_name))
+            count += 1
+
+    return count
+
+
+F5_TRACKED_FIELDS = [
+    "vs_ip", "vs_port", "pool_name", "rule_name",
+    "member_ip", "member_port", "member_state", "domain_name",
+]
+
+
+def _f5_fields_differ(old_row, new_row):
+    """比较旧 F5 应用映射与新的是否有变化。"""
+    for f in F5_TRACKED_FIELDS:
+        ov = str(getattr(old_row, f, None) or "")
+        nv = str(getattr(new_row, f, None) or "")
+        if ov != nv:
+            return True
+    return False
+
+
+def _make_f5_entry(change_type, new_row, old_row, f5_device_id, f5_device_name):
+    """构建 F5 历史记录。"""
+    row = new_row if new_row is not None else old_row
+    dedup_key = f"{row.vs_name}::{row.domain_name}::{row.pool_name}::{f5_device_id}"
+
+    entry = History(
+        change_type=change_type,
+        source_type=SourceType.f5,
+        source_id=f5_device_id,
+        source_name=f5_device_name,
+        dedup_key=dedup_key,
+        ip_address=row.vs_ip or "",
+        mac_address="",
+    )
+
+    if old_row is not None and new_row is not None:
+        entry.change_detail = _build_change_detail(old_row, new_row, F5_TRACKED_FIELDS)
+
+    return entry
+
+
+def detect_f5_changes(db, f5_device_id: int, f5_device_name: str,
+                      old_by_key: dict, new_by_key: dict):
+    """以 (vs_name, domain_name, pool_name) 为键 diff，写入 F5 History。"""
+    if not old_by_key:
+        return 0
+
+    count = 0
+
+    for key, new_row in new_by_key.items():
+        if key not in old_by_key:
+            db.add(_make_f5_entry(ChangeType.added, new_row, None,
+                                   f5_device_id, f5_device_name))
+            count += 1
+
+    for key, old_row in old_by_key.items():
+        if key not in new_by_key:
+            db.add(_make_f5_entry(ChangeType.deleted, None, old_row,
+                                   f5_device_id, f5_device_name))
+            count += 1
+
+    for key, new_row in new_by_key.items():
+        old_row = old_by_key.get(key)
+        if old_row is not None and _f5_fields_differ(old_row, new_row):
+            db.add(_make_f5_entry(ChangeType.modified, new_row, old_row,
+                                   f5_device_id, f5_device_name))
             count += 1
 
     return count

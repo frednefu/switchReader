@@ -301,6 +301,12 @@ def _do_vcenter_scan(host: str, username: str, password: str, port: int) -> list
                 except Exception:
                     memory_gb = None
 
+                # 读取 VM 注解（备注）
+                try:
+                    remark = str(vm.config.annotation or "") if vm.config else ""
+                except Exception:
+                    remark = ""
+
                 rows.append({
                     "datacenter": datacenter_name,
                     "cluster": cluster_name,
@@ -316,7 +322,7 @@ def _do_vcenter_scan(host: str, username: str, password: str, port: int) -> list
                     "os_name": os_name,
                     "cpu_count": cpu_num,
                     "memory_gb": memory_gb,
-                    "remark": "",
+                    "remark": remark,
                 })
             except Exception:
                 logger.exception("处理 VM %s 失败", getattr(vm, "name", "未知"))
@@ -328,6 +334,8 @@ def _do_vcenter_scan(host: str, username: str, password: str, port: int) -> list
 async def _run_vcenter_scan_async(vcenter_id: int):
     """异步扫描入口 — 在线程池中运行同步 pyVmomi 调用。"""
     from app.services.history_service import detect_vcenter_changes
+
+    start_time = datetime.now()
 
     db = SessionLocal()
     vc = None
@@ -378,21 +386,25 @@ async def _run_vcenter_scan_async(vcenter_id: int):
         finally:
             write_db.close()
 
+        duration = round((datetime.now() - start_time).total_seconds(), 1)
         db_vc = db.query(VCenter).get(vcenter_id)
         if db_vc:
             db_vc.last_scan_status = "success"
             db_vc.last_scan_time = datetime.now()
+            db_vc.last_scan_duration = duration
             db_vc.last_vm_count = count
             db_vc.last_scan_error = None
             db.commit()
-        logger.info("vCenter %s 扫描完成，共 %s 台 VM", vc.host, count)
+        logger.info("vCenter %s 扫描完成，共 %s 台 VM，耗时 %ss", vc.host, count, duration)
     except Exception as e:
+        duration = round((datetime.now() - start_time).total_seconds(), 1)
         logger.exception("vCenter %s 扫描失败", vc.host if vc else vcenter_id)
         try:
             db_vc = db.query(VCenter).get(vcenter_id)
             if db_vc:
                 db_vc.last_scan_status = "failed"
                 db_vc.last_scan_error = str(e)
+                db_vc.last_scan_duration = duration
                 db.commit()
         except Exception:
             pass

@@ -22,7 +22,14 @@
         <el-tag :type="sw.is_active ? 'success' : 'info'" size="small">{{ sw.is_active ? '启用' : '禁用' }}</el-tag>
       </el-descriptions-item>
       <el-descriptions-item label="扫描间隔">{{ sw.scan_interval > 0 ? sw.scan_interval + 's' : '手动' }}</el-descriptions-item>
-      <el-descriptions-item label="SNMP 端口">{{ sw.snmp_port }}</el-descriptions-item>
+      <el-descriptions-item label="扫描状态">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <el-tag v-if="sw.last_scan_status === 'success'" type="success" size="small">成功</el-tag>
+          <el-tag v-else-if="sw.last_scan_status === 'failed'" type="danger" size="small">失败</el-tag>
+          <span v-else style="color:#c0c4cc;">未扫描</span>
+          <span v-if="sw.last_scan_duration" style="color:#909399;font-size:12px;">耗时 {{ sw.last_scan_duration }}s</span>
+        </div>
+      </el-descriptions-item>
       <el-descriptions-item label="最后更新">{{ formatTime(sw.updated_at) }}</el-descriptions-item>
     </el-descriptions>
 

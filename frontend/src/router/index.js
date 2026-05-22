@@ -44,6 +44,18 @@ const routes = [
         meta: { title: 'vCenter 详情' },
       },
       {
+        path: 'f5',
+        name: 'F5Devices',
+        component: () => import('@/views/F5List.vue'),
+        meta: { title: 'F5 管理' },
+      },
+      {
+        path: 'f5/:id',
+        name: 'F5Detail',
+        component: () => import('@/views/F5Detail.vue'),
+        meta: { title: 'F5 详情' },
+      },
+      {
         path: 'results',
         name: 'Results',
         component: () => import('@/views/Results.vue'),

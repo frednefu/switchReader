@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Enum, DateTime, ForeignKey, func, Text
+from sqlalchemy import Column, Integer, String, Enum, Float, DateTime, ForeignKey, func, Text
 from sqlalchemy.orm import relationship
 from app.database import Base
 import enum
@@ -27,5 +27,6 @@ class ScanLog(Base):
     error_message = Column(Text, nullable=True)
     started_at = Column(DateTime, server_default=func.now(), nullable=False)
     completed_at = Column(DateTime, nullable=True)
+    duration_seconds = Column(Float, nullable=True)
 
     switch = relationship("Switch", back_populates="scan_logs")

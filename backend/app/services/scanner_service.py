@@ -177,14 +177,8 @@ async def _run_scan_async(switch: Switch, scan_log_id: int):
             scan_log.routes_found = len(route_data)
             scan_log.error_message = error_msg
             scan_log.completed_at = datetime.now()
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        scan_log = db.query(ScanLog).get(scan_log_id)
-        if scan_log:
-            scan_log.status = ScanStatus.failed
-            scan_log.error_message = str(e)
-            scan_log.completed_at = datetime.now()
+            if scan_log.started_at:
+                scan_log.duration_seconds = round((scan_log.completed_at - scan_log.started_at).total_seconds(), 1)
         db.commit()
     finally:
         db.close()

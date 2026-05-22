@@ -31,6 +31,7 @@ class VCenterOut(BaseModel):
     is_active: bool
     last_scan_status: Optional[str] = None
     last_scan_time: Optional[datetime] = None
+    last_scan_duration: Optional[float] = None
     last_vm_count: int = 0
     last_scan_error: Optional[str] = None
     created_at: datetime

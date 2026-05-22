@@ -7,5 +7,6 @@ from app.models.subnet import Subnet
 from app.models.history import History
 from app.models.vcenter import VCenter
 from app.models.vm_inventory import VMInventory
+from app.models.f5 import F5Device, F5VirtualServer, F5PoolMember, F5Rule, F5ApplicationMap
 
-__all__ = ["User", "Switch", "ScanResult", "RouteTable", "ScanLog", "Subnet", "History", "VCenter", "VMInventory"]
+__all__ = ["User", "Switch", "ScanResult", "RouteTable", "ScanLog", "Subnet", "History", "VCenter", "VMInventory", "F5Device", "F5VirtualServer", "F5PoolMember", "F5Rule", "F5ApplicationMap"]

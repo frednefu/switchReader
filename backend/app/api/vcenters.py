@@ -44,7 +44,8 @@ def list_all_vms(
         q = q.filter(
             (VMInventory.vm_name.contains(search)) |
             (VMInventory.ip_address.contains(search)) |
-            (VMInventory.mac_address.contains(search))
+            (VMInventory.mac_address.contains(search)) |
+            (VMInventory.os_name.contains(search))
         )
     total = q.count()
     pages = ceil(total / size) if total > 0 else 0
@@ -232,7 +233,13 @@ def list_vcenter_vms(
     if search:
         q = q.filter(
             (VMInventory.vm_name.contains(search)) |
-            (VMInventory.ip_address.contains(search))
+            (VMInventory.ip_address.contains(search)) |
+            (VMInventory.mac_address.contains(search)) |
+            (VMInventory.os_name.contains(search)) |
+            (VMInventory.cluster.contains(search)) |
+            (VMInventory.esxi_host.contains(search)) |
+            (VMInventory.network_name.contains(search)) |
+            (VMInventory.vm_folder.contains(search))
         )
     total = q.count()
     pages = ceil(total / size) if total > 0 else 0

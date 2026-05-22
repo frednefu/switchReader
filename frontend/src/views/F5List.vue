@@ -1,7 +1,7 @@
 <template>
-  <div class="vcenter-list">
+  <div class="f5-list">
     <div class="page-header">
-      <h2>vCenter 管理</h2>
+      <h2>F5 管理</h2>
       <div class="header-actions" v-if="authStore.isAdmin">
         <el-dropdown trigger="click">
           <el-button type="warning" plain>
@@ -19,15 +19,15 @@
           </template>
         </el-dropdown>
         <el-button type="primary" @click="openCreate">
-          <el-icon><Plus /></el-icon>添加 vCenter
+          <el-icon><Plus /></el-icon>添加 F5
         </el-button>
       </div>
     </div>
 
     <el-card>
-      <el-table :data="vcenters" stripe v-loading="loading" style="width: 100%">
+      <el-table :data="devices" stripe v-loading="loading" style="width: 100%">
         <template #empty>
-          <el-empty description="暂无 vCenter，请点击「添加 vCenter」开始" :image-size="80" />
+          <el-empty description="暂无 F5 设备，请点击「添加 F5」开始" :image-size="80" />
         </template>
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="name" label="名称" min-width="120" />
@@ -50,9 +50,9 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="VM 数量" width="80">
+        <el-table-column label="VS / Pool" width="100">
           <template #default="{ row }">
-            {{ row.last_vm_count || '-' }}
+            {{ row.last_vs_count || 0 }} / {{ row.last_pool_count || 0 }}
           </template>
         </el-table-column>
         <el-table-column prop="is_active" label="状态" width="80">
@@ -64,7 +64,7 @@
         </el-table-column>
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" @click="$router.push(`/vcenters/${row.id}`)">详情</el-button>
+            <el-button size="small" @click="$router.push(`/f5/${row.id}`)">详情</el-button>
             <el-dropdown v-if="authStore.isAdmin" trigger="click" @command="(cmd) => handleCommand(cmd, row)">
               <el-button size="small">
                 更多<el-icon class="el-icon--right"><ArrowDown /></el-icon>
@@ -94,19 +94,19 @@
       </div>
     </el-card>
 
-    <VCenterFormDialog v-model:visible="dialogVisible" :edit-data="editData" @saved="fetchList" />
+    <F5FormDialog v-model:visible="dialogVisible" :edit-data="editData" @saved="fetchList" />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/store/auth'
-import { getVCenters, deleteVCenter, triggerVCenterScan, scanAllVCenters, deleteAllVCenters } from '@/api/vcenters'
+import { getF5Devices, deleteF5Device, triggerF5Scan, scanAllF5Devices, deleteAllF5Devices } from '@/api/f5'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import VCenterFormDialog from '@/components/VCenterFormDialog.vue'
+import F5FormDialog from '@/components/F5FormDialog.vue'
 
 const authStore = useAuthStore()
-const vcenters = ref([])
+const devices = ref([])
 const loading = ref(false)
 const page = ref(1)
 const size = ref(20)
@@ -117,8 +117,8 @@ const editData = ref(null)
 async function fetchList() {
   loading.value = true
   try {
-    const res = await getVCenters({ page: page.value, size: size.value })
-    vcenters.value = res.items
+    const res = await getF5Devices({ page: page.value, size: size.value })
+    devices.value = res.items
     total.value = res.total
   } finally {
     loading.value = false
@@ -137,8 +137,8 @@ function openEdit(row) {
 
 async function handleScan(row) {
   try {
-    await ElMessageBox.confirm(`确认扫描 vCenter ${row.name} (${row.host})？`, '确认扫描')
-    await triggerVCenterScan(row.id)
+    await ElMessageBox.confirm(`确认扫描 F5 ${row.name} (${row.host})？`, '确认扫描')
+    await triggerF5Scan(row.id)
     ElMessage.success('扫描已触发')
     fetchList()
   } catch { /* cancelled */ }
@@ -146,8 +146,8 @@ async function handleScan(row) {
 
 async function handleDelete(row) {
   try {
-    await ElMessageBox.confirm(`确认删除 vCenter ${row.name}？此操作不可恢复。`, '确认删除', { type: 'warning' })
-    await deleteVCenter(row.id)
+    await ElMessageBox.confirm(`确认删除 F5 ${row.name}？此操作不可恢复。`, '确认删除', { type: 'warning' })
+    await deleteF5Device(row.id)
     ElMessage.success('已删除')
     fetchList()
   } catch { /* cancelled */ }
@@ -161,8 +161,8 @@ function handleCommand(cmd, row) {
 
 async function handleScanAll() {
   try {
-    await ElMessageBox.confirm('确认扫描所有启用的 vCenter？', '全部扫描', { type: 'info' })
-    const result = await scanAllVCenters()
+    await ElMessageBox.confirm('确认扫描所有启用的 F5 设备？', '全部扫描', { type: 'info' })
+    const result = await scanAllF5Devices()
     ElMessage.success(result.message)
     fetchList()
   } catch { /* cancelled */ }
@@ -171,11 +171,11 @@ async function handleScanAll() {
 async function handleDeleteAll() {
   try {
     await ElMessageBox.confirm(
-      '此操作将删除所有 vCenter 及其关联的虚拟机清单数据，不可恢复！',
+      '此操作将删除所有 F5 设备及其关联的配置数据，不可恢复！',
       '全部删除',
       { type: 'error', confirmButtonClass: 'el-button--danger' }
     )
-    const result = await deleteAllVCenters()
+    const result = await deleteAllF5Devices()
     ElMessage.success(result.message)
     fetchList()
   } catch { /* cancelled */ }

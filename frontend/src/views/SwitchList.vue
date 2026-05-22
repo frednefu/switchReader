@@ -56,11 +56,14 @@
             {{ row.scan_interval > 0 ? row.scan_interval + 's' : '手动' }}
           </template>
         </el-table-column>
-        <el-table-column label="最后扫描" width="100">
+        <el-table-column label="最后扫描" width="130">
           <template #default="{ row }">
-            <el-tag v-if="row.last_scan_status === 'success'" type="success" size="small">成功</el-tag>
-            <el-tag v-else-if="row.last_scan_status === 'failed'" type="danger" size="small">失败</el-tag>
-            <span v-else style="color:#c0c4cc;">未扫描</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <el-tag v-if="row.last_scan_status === 'success'" type="success" size="small">成功</el-tag>
+              <el-tag v-else-if="row.last_scan_status === 'failed'" type="danger" size="small">失败</el-tag>
+              <span v-else style="color:#c0c4cc;">未扫描</span>
+              <span v-if="row.last_scan_duration" style="color:#909399;font-size:12px;">{{ row.last_scan_duration }}s</span>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="扫描结果" width="160">

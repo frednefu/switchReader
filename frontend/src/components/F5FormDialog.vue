@@ -2,7 +2,7 @@
   <el-dialog
     :model-value="visible"
     @update:model-value="$emit('update:visible', $event)"
-    :title="isEdit ? '编辑 vCenter' : '添加 vCenter'"
+    :title="isEdit ? '编辑 F5 设备' : '添加 F5 设备'"
     width="520px"
     @open="initForm"
   >
@@ -11,10 +11,10 @@
         <el-input v-model="form.name" placeholder="请输入名称" />
       </el-form-item>
       <el-form-item label="主机地址" prop="host">
-        <el-input v-model="form.host" :disabled="isEdit" placeholder="vCenter 主机名或 IP" />
+        <el-input v-model="form.host" :disabled="isEdit" placeholder="F5 主机名或 IP" />
       </el-form-item>
       <el-form-item label="用户名" prop="username">
-        <el-input v-model="form.username" placeholder="administrator@vsphere.local" />
+        <el-input v-model="form.username" placeholder="iControl REST 用户名" />
       </el-form-item>
       <el-form-item label="密码" prop="password">
         <el-input v-model="form.password" type="password" show-password :placeholder="isEdit ? '留空则不修改' : '请输入密码'" />
@@ -49,7 +49,7 @@
 
 <script setup>
 import { ref, reactive } from 'vue'
-import { createVCenter, updateVCenter, testVCenterConnection } from '@/api/vcenters'
+import { createF5Device, updateF5Device, testF5Connection } from '@/api/f5'
 import { ElMessage } from 'element-plus'
 
 const props = defineProps({
@@ -116,7 +116,7 @@ async function handleTest() {
   testing.value = true
   testResult.value = null
   try {
-    testResult.value = await testVCenterConnection({
+    testResult.value = await testF5Connection({
       host: form.host,
       username: form.username,
       password: form.password,
@@ -141,11 +141,11 @@ async function handleSubmit() {
       if (form.password) payload.password = form.password
       if (form.port !== props.editData.port) payload.port = form.port
       if (form.scan_interval !== props.editData.scan_interval) payload.scan_interval = form.scan_interval
-      await updateVCenter(editId.value, payload)
-      ElMessage.success('vCenter 已更新')
+      await updateF5Device(editId.value, payload)
+      ElMessage.success('F5 设备已更新')
     } else {
-      await createVCenter({ ...form })
-      ElMessage.success('vCenter 已创建')
+      await createF5Device({ ...form })
+      ElMessage.success('F5 设备已创建')
     }
     emit('saved')
   } finally {

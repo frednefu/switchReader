@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Text, func
+from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, ForeignKey, Text, func
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -17,6 +17,7 @@ class VCenter(Base):
 
     last_scan_status = Column(String(16), nullable=True)
     last_scan_time = Column(DateTime, nullable=True)
+    last_scan_duration = Column(Float, nullable=True)
     last_vm_count = Column(Integer, nullable=False, default=0)
     last_scan_error = Column(Text, nullable=True)
 

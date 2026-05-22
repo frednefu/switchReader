@@ -56,6 +56,7 @@ def _enrich_with_scan_info(db: Session, switches: list) -> list[dict]:
             d["last_hosts_found"] = latest.hosts_found or 0
             d["last_routes_found"] = latest.routes_found or 0
             d["last_scan_time"] = latest.completed_at
+            d["last_scan_duration"] = latest.duration_seconds
         result.append(d)
     return result
 
@@ -197,7 +198,8 @@ def get_switch(switch_id: int, db: Session = Depends(get_db), current_user=Depen
     sw = db.query(Switch).get(switch_id)
     if not sw:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="交换机不存在")
-    return SwitchOut.model_validate(sw)
+    enriched = _enrich_with_scan_info(db, [sw])
+    return enriched[0] if enriched else SwitchOut.model_validate(sw)
 
 
 @router.put("/{switch_id}", response_model=SwitchOut)

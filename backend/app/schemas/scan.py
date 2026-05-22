@@ -49,6 +49,7 @@ class ScanLogOut(BaseModel):
     error_message: Optional[str] = None
     started_at: datetime
     completed_at: Optional[datetime] = None
+    duration_seconds: Optional[float] = None
 
     class Config:
         from_attributes = True

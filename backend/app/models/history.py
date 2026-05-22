@@ -13,6 +13,7 @@ class ChangeType(str, enum.Enum):
 class SourceType(str, enum.Enum):
     switch = "switch"
     vcenter = "vcenter"
+    f5 = "f5"
 
 
 class History(Base):
