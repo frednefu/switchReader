@@ -56,6 +56,18 @@ const routes = [
         meta: { title: 'F5 详情' },
       },
       {
+        path: 'zdns',
+        name: 'ZDNSDevices',
+        component: () => import('@/views/ZDNSList.vue'),
+        meta: { title: 'ZDNS 管理' },
+      },
+      {
+        path: 'zdns/:id',
+        name: 'ZDNSDetail',
+        component: () => import('@/views/ZDNSDetail.vue'),
+        meta: { title: 'ZDNS 详情' },
+      },
+      {
         path: 'results',
         name: 'Results',
         component: () => import('@/views/Results.vue'),
