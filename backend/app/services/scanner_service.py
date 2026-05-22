@@ -190,6 +190,9 @@ async def trigger_scan(switch: Switch, triggered_by: TriggerType) -> int:
     try:
         scan_log = ScanLog(
             switch_id=switch.id,
+            source_type="switch",
+            source_id=switch.id,
+            source_name=switch.name,
             status=ScanStatus.running,
             triggered_by=triggered_by,
             started_at=datetime.now(),

@@ -177,8 +177,8 @@ async def trigger_scan(
         dev.last_scan_status = None
         dev.last_scan_error = None
         db.commit()
-    await trigger_zdns_scan(dev)
-    return {"message": "扫描已触发"}
+    scan_log_id = await trigger_zdns_scan(dev)
+    return {"message": "扫描已触发", "scan_log_id": scan_log_id}
 
 
 # ─── DNS 记录清单 ───

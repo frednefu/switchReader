@@ -13,7 +13,7 @@ class ZDNSDevice(Base):
     username = Column(String(128), nullable=False)
     password = Column(String(255), nullable=False)
     port = Column(Integer, nullable=False, default=20120)
-    scan_interval = Column(Integer, nullable=False, default=3600)
+    scan_interval = Column(Integer, nullable=False, default=86400)
     is_active = Column(Boolean, nullable=False, default=True)
 
     last_scan_status = Column(String(16), nullable=True)

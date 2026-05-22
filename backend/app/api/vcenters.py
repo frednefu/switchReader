@@ -211,8 +211,8 @@ async def trigger_scan(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="vCenter 不存在")
     if vc.last_scan_status == "running":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="该 vCenter 正在扫描中")
-    await trigger_vcenter_scan(vc)
-    return {"message": "扫描已触发"}
+    scan_log_id = await trigger_vcenter_scan(vc)
+    return {"message": "扫描已触发", "scan_log_id": scan_log_id}
 
 
 # ─── 该 vCenter 的 VM 清单 ───

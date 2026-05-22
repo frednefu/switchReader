@@ -232,9 +232,10 @@ def _build_domain_map(records: list) -> list:
     return rows
 
 
-async def _run_zdns_scan_async(zdns_device_id: int):
+async def _run_zdns_scan_async(zdns_device_id: int, scan_log_id: int | None = None):
     """异步扫描 ZDNS 设备，采集 DNS 记录并写入数据库。"""
     from app.services.history_service import detect_zdns_changes
+    from app.models.scan_log import ScanLog, ScanStatus
 
     start_time = datetime.now()
 
@@ -327,19 +328,53 @@ async def _run_zdns_scan_async(zdns_device_id: int):
     finally:
         db.close()
 
+    # 更新扫描日志
+    if scan_log_id:
+        _db = SessionLocal()
+        try:
+            log = _db.query(ScanLog).get(scan_log_id)
+            if log:
+                log.status = ScanStatus.success
+                log.hosts_found = record_count
+                log.routes_found = zone_count
+                log.completed_at = datetime.now()
+                if log.started_at:
+                    log.duration_seconds = round((datetime.now() - log.started_at).total_seconds(), 1)
+                _db.commit()
+        except Exception:
+            pass
+        finally:
+            _db.close()
 
-async def trigger_zdns_scan(device: ZDNSDevice):
-    """触发异步扫描，立即返回。"""
+
+async def trigger_zdns_scan(device: ZDNSDevice, triggered_by: str = "manual") -> int:
+    """触发异步扫描，立即返回。返回 scan_log_id。"""
+    from app.models.scan_log import ScanLog, ScanStatus, TriggerType
+
     db = SessionLocal()
     try:
         db_device = db.query(ZDNSDevice).get(device.id)
         if db_device:
             db_device.last_scan_status = "running"
             db_device.last_scan_error = None
-            db.commit()
+
+        trigger = TriggerType.manual if triggered_by == "manual" else TriggerType.scheduled
+        scan_log = ScanLog(
+            source_type="zdns",
+            source_id=device.id,
+            source_name=device.name,
+            status=ScanStatus.running,
+            triggered_by=trigger,
+            started_at=datetime.now(),
+        )
+        db.add(scan_log)
+        db.commit()
+        db.refresh(scan_log)
+        scan_log_id = scan_log.id
     finally:
         db.close()
-    asyncio.create_task(_run_zdns_scan_async(device.id))
+    asyncio.create_task(_run_zdns_scan_async(device.id, scan_log_id))
+    return scan_log_id
 
 
 async def test_zdns_connection(host: str, username: str, password: str, port: int = 20120) -> dict:

@@ -20,6 +20,9 @@ class ScanLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     switch_id = Column(Integer, ForeignKey("switches.id", ondelete="SET NULL"), nullable=True)
+    source_type = Column(String(16), nullable=False, default="switch")
+    source_id = Column(Integer, nullable=True)
+    source_name = Column(String(255), default="")
     status = Column(Enum(ScanStatus), nullable=False, default=ScanStatus.running)
     triggered_by = Column(Enum(TriggerType), nullable=False, default=TriggerType.manual)
     hosts_found = Column(Integer, default=0)

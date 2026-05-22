@@ -331,14 +331,16 @@ def _do_vcenter_scan(host: str, username: str, password: str, port: int) -> list
         Disconnect(si)
 
 
-async def _run_vcenter_scan_async(vcenter_id: int):
+async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = None):
     """异步扫描入口 — 在线程池中运行同步 pyVmomi 调用。"""
     from app.services.history_service import detect_vcenter_changes
+    from app.models.scan_log import ScanLog, ScanStatus
 
     start_time = datetime.now()
 
     db = SessionLocal()
     vc = None
+    count = 0
     try:
         vc = db.query(VCenter).get(vcenter_id)
         if not vc or not vc.is_active:
@@ -411,18 +413,51 @@ async def _run_vcenter_scan_async(vcenter_id: int):
     finally:
         db.close()
 
+    # 更新扫描日志
+    if scan_log_id:
+        _db = SessionLocal()
+        try:
+            log = _db.query(ScanLog).get(scan_log_id)
+            if log:
+                log.status = ScanStatus.success if count > 0 else ScanStatus.success
+                log.hosts_found = count
+                log.completed_at = datetime.now()
+                if log.started_at:
+                    log.duration_seconds = round((datetime.now() - log.started_at).total_seconds(), 1)
+                _db.commit()
+        except Exception:
+            pass
+        finally:
+            _db.close()
 
-async def trigger_vcenter_scan(vcenter: VCenter):
-    """触发异步扫描，立即返回。"""
+
+async def trigger_vcenter_scan(vcenter: VCenter, triggered_by: str = "manual") -> int:
+    """触发异步扫描，立即返回。返回 scan_log_id。"""
+    from app.models.scan_log import ScanLog, ScanStatus, TriggerType
+
     db = SessionLocal()
     try:
         db_vc = db.query(VCenter).get(vcenter.id)
         db_vc.last_scan_status = "running"
         db_vc.last_scan_error = None
+
+        trigger = TriggerType.manual if triggered_by == "manual" else TriggerType.scheduled
+        scan_log = ScanLog(
+            source_type="vcenter",
+            source_id=vcenter.id,
+            source_name=vcenter.name,
+            status=ScanStatus.running,
+            triggered_by=trigger,
+            started_at=datetime.now(),
+        )
+        db.add(scan_log)
         db.commit()
+        db.refresh(scan_log)
+        scan_log_id = scan_log.id
     finally:
         db.close()
-    asyncio.create_task(_run_vcenter_scan_async(vcenter.id))
+    asyncio.create_task(_run_vcenter_scan_async(vcenter.id, scan_log_id))
+    return scan_log_id
 
 
 async def test_vcenter_connection(host: str, username: str, password: str, port: int = 443) -> dict:

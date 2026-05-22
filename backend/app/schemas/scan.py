@@ -42,6 +42,9 @@ class RouteTableOut(BaseModel):
 class ScanLogOut(BaseModel):
     id: int
     switch_id: Optional[int] = None
+    source_type: str = "switch"
+    source_id: Optional[int] = None
+    source_name: str = ""
     status: str
     triggered_by: str
     hosts_found: int

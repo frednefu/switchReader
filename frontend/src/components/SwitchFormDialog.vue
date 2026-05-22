@@ -76,7 +76,7 @@ const form = reactive({
   snmp_port: 161,
   snmp_timeout: 3,
   snmp_retries: 2,
-  scan_interval: 3600,
+  scan_interval: 86400,
 })
 
 const rules = {
@@ -95,7 +95,7 @@ function initForm() {
     snmp_port: props.editData?.snmp_port ?? 161,
     snmp_timeout: props.editData?.snmp_timeout ?? 3,
     snmp_retries: props.editData?.snmp_retries ?? 2,
-    scan_interval: props.editData?.scan_interval ?? 3600,
+    scan_interval: props.editData?.scan_interval ?? 86400,
   })
 }
 

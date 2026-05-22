@@ -22,6 +22,42 @@ logger = logging.getLogger(__name__)
 scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
 
 
+def _create_scan_log(db, source_type, source_id, source_name):
+    """创建扫描日志并返回 scan_log_id。"""
+    scan_log = ScanLog(
+        source_type=source_type,
+        source_id=source_id,
+        source_name=source_name,
+        status=ScanStatus.running,
+        triggered_by=TriggerType.scheduled,
+        started_at=datetime.now(),
+    )
+    db.add(scan_log)
+    db.commit()
+    db.refresh(scan_log)
+    return scan_log.id
+
+
+def _complete_scan_log(scan_log_id, status, hosts_found=0, routes_found=0, error_msg=None):
+    """更新扫描日志为完成状态。"""
+    db = SessionLocal()
+    try:
+        log = db.query(ScanLog).get(scan_log_id)
+        if log:
+            log.status = status
+            log.hosts_found = hosts_found
+            log.routes_found = routes_found
+            log.error_message = error_msg
+            log.completed_at = datetime.now()
+            if log.started_at:
+                log.duration_seconds = round((log.completed_at - log.started_at).total_seconds(), 1)
+            db.commit()
+    except Exception:
+        logger.exception("更新扫描日志失败 scan_log_id=%s", scan_log_id)
+    finally:
+        db.close()
+
+
 def _scan_job(switch_id: int):
     """单个交换机扫描 job（在独立线程中运行）。"""
     db = SessionLocal()
@@ -31,22 +67,14 @@ def _scan_job(switch_id: int):
             return
 
         running = db.query(ScanLog).filter(
-            ScanLog.switch_id == switch_id,
+            ScanLog.source_type == "switch",
+            ScanLog.source_id == switch_id,
             ScanLog.status == ScanStatus.running,
         ).first()
         if running:
             return
 
-        scan_log = ScanLog(
-            switch_id=switch_id,
-            status=ScanStatus.running,
-            triggered_by=TriggerType.scheduled,
-            started_at=datetime.now(),
-        )
-        db.add(scan_log)
-        db.commit()
-        db.refresh(scan_log)
-        scan_log_id = scan_log.id
+        scan_log_id = _create_scan_log(db, "switch", switch_id, sw.name)
 
         # 在线程中运行异步扫描
         asyncio.run(_run_scan_async(sw, scan_log_id))
@@ -63,7 +91,10 @@ def _vcenter_scan_job(vcenter_id: int):
         vc = db.query(VCenter).get(vcenter_id)
         if not vc or not vc.is_active or vc.last_scan_status == "running":
             return
-        asyncio.run(_run_vcenter_scan_async(vcenter_id))
+
+        scan_log_id = _create_scan_log(db, "vcenter", vcenter_id, vc.name)
+
+        asyncio.run(_run_vcenter_scan_async(vcenter_id, scan_log_id))
     except Exception:
         logger.exception("vCenter 定时扫描失败 vcenter_id=%s", vcenter_id)
     finally:
@@ -71,7 +102,7 @@ def _vcenter_scan_job(vcenter_id: int):
 
 
 def start_scheduler():
-    """启动调度器，为所有启用的交换机和 vCenter 创建定时任务。"""
+    """启动调度器，为所有启用的设备创建定时任务。"""
     db = SessionLocal()
     try:
         switches = db.query(Switch).filter(Switch.is_active == True, Switch.scan_interval > 0).all()
@@ -102,7 +133,7 @@ def shutdown_scheduler():
 
 
 def refresh_job(switch_id: int, scan_interval: int):
-    """更新或移除单个任务的调度。"""
+    """更新或移除单个交换机任务。"""
     job_id = f"scan_{switch_id}"
     if scheduler.get_job(job_id):
         scheduler.remove_job(job_id)
@@ -151,7 +182,10 @@ def _f5_scan_job(f5_device_id: int):
         dev = db.query(F5Device).get(f5_device_id)
         if not dev or not dev.is_active or dev.last_scan_status == "running":
             return
-        asyncio.run(_run_f5_scan_async(f5_device_id))
+
+        scan_log_id = _create_scan_log(db, "f5", f5_device_id, dev.name)
+
+        asyncio.run(_run_f5_scan_async(f5_device_id, scan_log_id))
     except Exception:
         logger.exception("F5 定时扫描失败 f5_device_id=%s", f5_device_id)
     finally:
@@ -186,7 +220,10 @@ def _zdns_scan_job(zdns_device_id: int):
         dev = db.query(ZDNSDevice).get(zdns_device_id)
         if not dev or not dev.is_active or dev.last_scan_status == "running":
             return
-        asyncio.run(_run_zdns_scan_async(zdns_device_id))
+
+        scan_log_id = _create_scan_log(db, "zdns", zdns_device_id, dev.name)
+
+        asyncio.run(_run_zdns_scan_async(zdns_device_id, scan_log_id))
     except Exception:
         logger.exception("ZDNS 定时扫描失败 zdns_device_id=%s", zdns_device_id)
     finally:

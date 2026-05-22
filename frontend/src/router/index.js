@@ -92,6 +92,12 @@ const routes = [
         meta: { title: '搜索' },
       },
       {
+        path: 'scan-logs',
+        name: 'ScanLogs',
+        component: () => import('@/views/ScanLogs.vue'),
+        meta: { title: '扫描记录' },
+      },
+      {
         path: 'history',
         name: 'History',
         component: () => import('@/views/History.vue'),

@@ -42,9 +42,7 @@
         </el-form>
 
         <el-table :data="items" v-loading="loading" stripe :row-class-name="rowClassName" style="width:100%">
-          <template #empty>
-            <el-empty description="暂无历史记录" :image-size="80" />
-          </template>
+          <template #empty><el-empty description="暂无历史记录" :image-size="80" /></template>
           <el-table-column label="时间" width="170">
             <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
           </el-table-column>
@@ -74,13 +72,8 @@
         </el-table>
 
         <div class="pagination-wrap" v-if="isPaginated && total > 0">
-          <el-pagination
-            v-model:current-page="page"
-            :page-size="size"
-            :total="total"
-            layout="total, prev, pager, next"
-            @current-change="fetchData"
-          />
+          <el-pagination v-model:current-page="page" :page-size="size" :total="total"
+            layout="total, prev, pager, next" @current-change="fetchData" />
         </div>
       </el-tab-pane>
 
@@ -106,15 +99,8 @@
             </el-select>
           </el-form-item>
           <el-form-item label="时间范围">
-            <el-date-picker
-              v-model="dateRange"
-              type="daterange"
-              range-separator="至"
-              start-placeholder="开始"
-              end-placeholder="结束"
-              value-format="YYYY-MM-DD"
-              style="width:240px"
-            />
+            <el-date-picker v-model="dateRange" type="daterange" range-separator="至"
+              start-placeholder="开始" end-placeholder="结束" value-format="YYYY-MM-DD" style="width:240px" />
           </el-form-item>
           <el-form-item>
             <el-button type="primary" @click="fetchData">查询</el-button>
@@ -123,9 +109,7 @@
         </el-form>
 
         <el-table :data="items" v-loading="loading" stripe :row-class-name="rowClassName" style="width:100%">
-          <template #empty>
-            <el-empty description="暂无 vCenter 历史记录" :image-size="80" />
-          </template>
+          <template #empty><el-empty description="暂无 vCenter 历史记录" :image-size="80" /></template>
           <el-table-column label="时间" width="170">
             <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
           </el-table-column>
@@ -136,9 +120,7 @@
             </template>
           </el-table-column>
           <el-table-column label="VM 名称" min-width="180" show-overflow-tooltip>
-            <template #default="{ row }">
-              {{ row.dedup_key ? row.dedup_key.split('::')[0] : '-' }}
-            </template>
+            <template #default="{ row }">{{ row.dedup_key ? row.dedup_key.split('::')[0] : '-' }}</template>
           </el-table-column>
           <el-table-column prop="ip_address" label="IP 地址" min-width="160" show-overflow-tooltip />
           <el-table-column prop="mac_address" label="MAC 地址" min-width="160" show-overflow-tooltip />
@@ -148,13 +130,122 @@
         </el-table>
 
         <div class="pagination-wrap" v-if="isPaginated && total > 0">
-          <el-pagination
-            v-model:current-page="page"
-            :page-size="size"
-            :total="total"
-            layout="total, prev, pager, next"
-            @current-change="fetchData"
-          />
+          <el-pagination v-model:current-page="page" :page-size="size" :total="total"
+            layout="total, prev, pager, next" @current-change="fetchData" />
+        </div>
+      </el-tab-pane>
+
+      <!-- ═══════════ F5 历史 Tab ═══════════ -->
+      <el-tab-pane label="F5 历史" name="f5">
+        <el-form :inline="true" class="filter-bar">
+          <el-form-item label="IP 地址">
+            <el-input v-model="filters.ip" placeholder="输入 VS IP" clearable style="width:150px" />
+          </el-form-item>
+          <el-form-item label="变更类型">
+            <el-select v-model="filters.change_type" placeholder="全部" clearable style="width:110px">
+              <el-option label="新增" value="added" />
+              <el-option label="删除" value="deleted" />
+              <el-option label="变更" value="modified" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="F5 设备">
+            <el-select v-model="filters.source_id" placeholder="全部" clearable style="width:180px">
+              <el-option v-for="d in f5Options" :key="d.id" :label="d.name" :value="d.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="时间范围">
+            <el-date-picker v-model="dateRange" type="daterange" range-separator="至"
+              start-placeholder="开始" end-placeholder="结束" value-format="YYYY-MM-DD" style="width:240px" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="fetchData">查询</el-button>
+            <el-button @click="resetFilters">重置</el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-table :data="items" v-loading="loading" stripe :row-class-name="rowClassName" style="width:100%">
+          <template #empty><el-empty description="暂无 F5 历史记录" :image-size="80" /></template>
+          <el-table-column label="时间" width="170">
+            <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column prop="source_name" label="F5 设备" width="160" show-overflow-tooltip />
+          <el-table-column label="变更类型" width="90">
+            <template #default="{ row }">
+              <el-tag :type="changeTag(row.change_type)" size="small">{{ changeLabel(row.change_type) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="ip_address" label="VS IP" width="140" />
+          <el-table-column label="VS 名称" min-width="160" show-overflow-tooltip>
+            <template #default="{ row }">{{ parseDedup(row, 0) }}</template>
+          </el-table-column>
+          <el-table-column label="域名" min-width="180" show-overflow-tooltip>
+            <template #default="{ row }">{{ parseDedup(row, 1) }}</template>
+          </el-table-column>
+          <el-table-column label="变更详情" min-width="300" show-overflow-tooltip>
+            <template #default="{ row }">{{ detailText(row) }}</template>
+          </el-table-column>
+        </el-table>
+
+        <div class="pagination-wrap" v-if="isPaginated && total > 0">
+          <el-pagination v-model:current-page="page" :page-size="size" :total="total"
+            layout="total, prev, pager, next" @current-change="fetchData" />
+        </div>
+      </el-tab-pane>
+
+      <!-- ═══════════ ZDNS 历史 Tab ═══════════ -->
+      <el-tab-pane label="ZDNS 历史" name="zdns">
+        <el-form :inline="true" class="filter-bar">
+          <el-form-item label="IP 地址">
+            <el-input v-model="filters.ip" placeholder="输入 IP" clearable style="width:150px" />
+          </el-form-item>
+          <el-form-item label="变更类型">
+            <el-select v-model="filters.change_type" placeholder="全部" clearable style="width:110px">
+              <el-option label="新增" value="added" />
+              <el-option label="删除" value="deleted" />
+              <el-option label="变更" value="modified" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="ZDNS 设备">
+            <el-select v-model="filters.source_id" placeholder="全部" clearable style="width:180px">
+              <el-option v-for="d in zdnsOptions" :key="d.id" :label="d.name" :value="d.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="时间范围">
+            <el-date-picker v-model="dateRange" type="daterange" range-separator="至"
+              start-placeholder="开始" end-placeholder="结束" value-format="YYYY-MM-DD" style="width:240px" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="fetchData">查询</el-button>
+            <el-button @click="resetFilters">重置</el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-table :data="items" v-loading="loading" stripe :row-class-name="rowClassName" style="width:100%">
+          <template #empty><el-empty description="暂无 ZDNS 历史记录" :image-size="80" /></template>
+          <el-table-column label="时间" width="170">
+            <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+          </el-table-column>
+          <el-table-column prop="source_name" label="ZDNS 设备" width="160" show-overflow-tooltip />
+          <el-table-column label="变更类型" width="90">
+            <template #default="{ row }">
+              <el-tag :type="changeTag(row.change_type)" size="small">{{ changeLabel(row.change_type) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="ip_address" label="IP 地址" width="140" />
+          <el-table-column label="域名" min-width="200" show-overflow-tooltip>
+            <template #default="{ row }">{{ parseDedup(row, 0) }}</template>
+          </el-table-column>
+          <el-table-column label="记录类型" width="90">
+            <template #default="{ row }">{{ parseDedup(row, 1) }}</template>
+          </el-table-column>
+          <el-table-column label="变更详情" min-width="300" show-overflow-tooltip>
+            <template #default="{ row }">{{ detailText(row) }}</template>
+          </el-table-column>
+        </el-table>
+
+        <div class="pagination-wrap" v-if="isPaginated && total > 0">
+          <el-pagination v-model:current-page="page" :page-size="size" :total="total"
+            layout="total, prev, pager, next" @current-change="fetchData" />
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -174,6 +265,8 @@ const size = ref(50)
 const total = ref(0)
 const switchOptions = ref([])
 const vcenterOptions = ref([])
+const f5Options = ref([])
+const zdnsOptions = ref([])
 const dateRange = ref(null)
 const filters = reactive({ ip: '', mac: '', change_type: '', switch_id: null, source_id: null, vm_name: '' })
 
@@ -210,8 +303,13 @@ function changeDiff(row, field) {
   return ofv + ' → ' + nfv
 }
 
+function parseDedup(row, index) {
+  if (!row.dedup_key) return '-'
+  const parts = row.dedup_key.split('::')
+  return parts[index] || '-'
+}
+
 function detailText(row) {
-  // 优先使用 change_detail JSON
   if (row.change_detail && typeof row.change_detail === 'object') {
     const parts = []
     for (const [field, vals] of Object.entries(row.change_detail)) {
@@ -222,7 +320,6 @@ function detailText(row) {
     }
     return parts.join(' | ')
   }
-  // 存量记录无 change_detail，用旧列渲染
   if (activeTab.value === 'switch') {
     const parts = []
     if (row.old_vlan_bd !== row.new_vlan_bd) parts.push(`VLAN: ${row.old_vlan_bd || '-'} → ${row.new_vlan_bd || '-'}`)
@@ -234,29 +331,21 @@ function detailText(row) {
 }
 
 const fieldLabels = {
-  vlan_bd: 'VLAN/BD',
-  vlan_type: 'VLAN类型',
-  physical_port: '物理端口',
-  virtual_port: '虚拟端口',
-  switch_type: '交换机类型',
-  ip_address: 'IP',
-  network_name: '网络',
-  resource_pool: '资源池',
-  vm_folder: '文件夹',
-  power_state: '电源',
-  esxi_host: 'ESXi',
-  cluster: '集群',
-  cpu_count: 'CPU',
-  memory_gb: '内存',
+  vlan_bd: 'VLAN/BD', vlan_type: 'VLAN类型', physical_port: '物理端口',
+  virtual_port: '虚拟端口', switch_type: '交换机类型', ip_address: 'IP',
+  network_name: '网络', resource_pool: '资源池', vm_folder: '文件夹',
+  power_state: '电源', esxi_host: 'ESXi', cluster: '集群',
+  cpu_count: 'CPU', memory_gb: '内存',
+  vs_ip: 'VS IP', vs_port: 'VS 端口', pool_name: 'Pool',
+  rule_name: 'iRule', member_ip: '成员 IP', member_port: '成员端口',
+  member_state: '成员状态', domain_name: '域名',
+  ip_category: 'IP类别', network_type: '网络类型', ttl: 'TTL',
+  view_name: '视图', zone_name: '区', is_enabled: '启用',
 }
 
 function resetFilters() {
-  filters.ip = ''
-  filters.mac = ''
-  filters.vm_name = ''
-  filters.change_type = ''
-  filters.switch_id = null
-  filters.source_id = null
+  filters.ip = ''; filters.mac = ''; filters.vm_name = ''
+  filters.change_type = ''; filters.switch_id = null; filters.source_id = null
   dateRange.value = null
   page.value = 1
   fetchData()
@@ -271,47 +360,49 @@ async function fetchData() {
   try {
     if (filters.ip && !filters.vm_name) {
       const data = await getHistoryByIp(filters.ip, { source_type: activeTab.value })
-      items.value = data
-      total.value = 0
+      items.value = data; total.value = 0
     } else if (filters.mac && !filters.vm_name) {
       const data = await getHistoryByMac(filters.mac, { source_type: activeTab.value })
-      items.value = data
-      total.value = 0
+      items.value = data; total.value = 0
     } else {
       const params = { page: page.value, size: size.value, source_type: activeTab.value }
       if (filters.change_type) params.change_type = filters.change_type
       if (filters.vm_name) params.vm_name = filters.vm_name
       if (filters.switch_id && activeTab.value === 'switch') params.switch_id = filters.switch_id
-      if (filters.source_id && activeTab.value === 'vcenter') params.source_id = filters.source_id
+      if (filters.source_id && ['vcenter', 'f5', 'zdns'].includes(activeTab.value))
+        params.source_id = filters.source_id
       if (dateRange.value) {
         params.start_date = dateRange.value[0]
         params.end_date = dateRange.value[1] + ' 23:59:59'
       }
       const data = await getHistory(params)
-      items.value = data.items
-      total.value = data.total
+      items.value = data.items; total.value = data.total
     }
   } catch { /* handled by interceptor */ }
   finally { loading.value = false }
 }
 
-async function fetchSwitches() {
+async function fetchDevices() {
   try {
     const { data } = await api.get('/switches', { params: { size: 100 } })
     switchOptions.value = data.items || []
   } catch { /* handled */ }
-}
-
-async function fetchVCenters() {
   try {
     const { data } = await api.get('/vcenters', { params: { size: 100 } })
     vcenterOptions.value = data.items || []
   } catch { /* handled */ }
+  try {
+    const { data } = await api.get('/f5', { params: { size: 100 } })
+    f5Options.value = data.items || []
+  } catch { /* handled */ }
+  try {
+    const { data } = await api.get('/zdns', { params: { size: 100 } })
+    zdnsOptions.value = data.items || []
+  } catch { /* handled */ }
 }
 
 onMounted(() => {
-  fetchSwitches()
-  fetchVCenters()
+  fetchDevices()
   fetchData()
 })
 </script>
@@ -334,8 +425,6 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
 }
-
-/* 行颜色编码 */
 :deep(.row-added) { background-color: var(--color-success-bg) !important; }
 :deep(.row-deleted) { background-color: var(--color-danger-bg) !important; }
 :deep(.row-modified) { background-color: var(--color-warning-bg) !important; }

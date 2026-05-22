@@ -20,7 +20,7 @@ class Switch(Base):
     snmp_port = Column(Integer, nullable=False, default=161)
     snmp_timeout = Column(Integer, nullable=False, default=3)
     snmp_retries = Column(Integer, nullable=False, default=2)
-    scan_interval = Column(Integer, nullable=False, default=3600)
+    scan_interval = Column(Integer, nullable=False, default=86400)
     is_active = Column(Boolean, nullable=False, default=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)

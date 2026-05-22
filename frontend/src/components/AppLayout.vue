@@ -58,6 +58,10 @@
           <el-icon><Grid /></el-icon>
           <span>地址段管理</span>
         </el-menu-item>
+        <el-menu-item index="/scan-logs">
+          <el-icon><Tickets /></el-icon>
+          <span>扫描记录</span>
+        </el-menu-item>
         <el-menu-item index="/history">
           <el-icon><Clock /></el-icon>
           <span>历史记录</span>
@@ -155,6 +159,7 @@ const pageTitle = computed(() => {
     '/results': '扫描结果',
     '/routes': '路由表',
     '/subnets': '地址段管理',
+    '/scan-logs': '扫描记录',
     '/history': '历史记录',
     '/users': '用户管理',
     '/profile': '个人设置',

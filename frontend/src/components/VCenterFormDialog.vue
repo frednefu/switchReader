@@ -71,7 +71,7 @@ const form = reactive({
   username: '',
   password: '',
   port: 443,
-  scan_interval: 3600,
+  scan_interval: 86400,
 })
 
 const rules = {
@@ -95,7 +95,7 @@ function initForm() {
     form.username = props.editData.username
     form.password = ''
     form.port = props.editData.port || 443
-    form.scan_interval = props.editData.scan_interval ?? 3600
+    form.scan_interval = props.editData.scan_interval ?? 86400
   } else {
     isEdit.value = false
     editId.value = null
@@ -104,7 +104,7 @@ function initForm() {
     form.username = ''
     form.password = ''
     form.port = 443
-    form.scan_interval = 3600
+    form.scan_interval = 86400
   }
 }
 
