@@ -327,6 +327,8 @@ def _do_vcenter_scan(host: str, username: str, password: str, port: int) -> list
 
 async def _run_vcenter_scan_async(vcenter_id: int):
     """异步扫描入口 — 在线程池中运行同步 pyVmomi 调用。"""
+    from app.services.history_service import detect_vcenter_changes
+
     db = SessionLocal()
     vc = None
     try:
@@ -341,12 +343,33 @@ async def _run_vcenter_scan_async(vcenter_id: int):
         loop = asyncio.get_running_loop()
         rows = await loop.run_in_executor(None, _do_vcenter_scan, vc.host, vc.username, vc.password, vc.port)
 
-        # 新 session 写数据
+        # 新 session 写数据（快照 → DELETE → INSERT → diff → 历史）
         write_db = SessionLocal()
         try:
+            # 快照旧数据
+            old_rows = write_db.query(VMInventory).filter(
+                VMInventory.vcenter_id == vcenter_id
+            ).all()
+            old_by_key = {}
+            for r in old_rows:
+                old_by_key[(r.vm_name, r.vcenter_id)] = r
+
+            # DELETE + INSERT
             write_db.query(VMInventory).filter(VMInventory.vcenter_id == vcenter_id).delete()
             for r in rows:
                 write_db.add(VMInventory(vcenter_id=vcenter_id, **r))
+
+            # 构建新数据映射用于 diff
+            new_rows = write_db.query(VMInventory).filter(
+                VMInventory.vcenter_id == vcenter_id
+            ).all()
+            new_by_key = {}
+            for r in new_rows:
+                new_by_key[(r.vm_name, r.vcenter_id)] = r
+
+            # 写入历史
+            detect_vcenter_changes(write_db, vcenter_id, vc.name, old_by_key, new_by_key)
+
             write_db.commit()
             count = len(rows)
         except Exception:
@@ -356,11 +379,12 @@ async def _run_vcenter_scan_async(vcenter_id: int):
             write_db.close()
 
         db_vc = db.query(VCenter).get(vcenter_id)
-        db_vc.last_scan_status = "success"
-        db_vc.last_scan_time = datetime.now()
-        db_vc.last_vm_count = count
-        db_vc.last_scan_error = None
-        db.commit()
+        if db_vc:
+            db_vc.last_scan_status = "success"
+            db_vc.last_scan_time = datetime.now()
+            db_vc.last_vm_count = count
+            db_vc.last_scan_error = None
+            db.commit()
         logger.info("vCenter %s 扫描完成，共 %s 台 VM", vc.host, count)
     except Exception as e:
         logger.exception("vCenter %s 扫描失败", vc.host if vc else vcenter_id)

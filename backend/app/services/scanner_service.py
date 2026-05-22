@@ -44,10 +44,10 @@ def _build_switch_config(switch: Switch) -> dict:
     return cfg
 
 
-def _store_host_results(db, switch_id: int, scan_log_id: int, host_data: list):
+def _store_host_results(db, switch_id: int, scan_log_id: int, host_data: list, switch_name: str = ""):
     """
     增量保存扫描结果：
-    - 核心键 (IP, MAC, 物理端口) 不变且追踪字段未变 → 只更新 updated_at，不产生历史
+    - 核心键 (IP, MAC) 不变且追踪字段未变 → 只更新 updated_at，不产生历史
     - 核心键存在但追踪字段变化 → 插入新行保留历史，产生 modified 记录
     - 核心键不存在 → 插入新行，产生 added 记录
     - 旧核心键在新数据中消失 → 产生 deleted 记录（旧数据保留作为历史）
@@ -66,11 +66,11 @@ def _store_host_results(db, switch_id: int, scan_log_id: int, host_data: list):
         if mac and mac not in mac_ip_map:
             mac_ip_map[mac] = ip
 
-    # 快照旧数据：(IP, MAC, physical_port) → ScanResult
+    # 快照旧数据：(IP, MAC) → ScanResult
     old_rows = db.query(ScanResult).filter(ScanResult.switch_id == switch_id).all()
     old_by_key = {}
     for r in old_rows:
-        old_by_key[(r.ip_address, r.mac_address, r.physical_port)] = r
+        old_by_key[(r.ip_address, r.mac_address)] = r
 
     now = datetime.now()
     new_by_key = {}
@@ -83,7 +83,7 @@ def _store_host_results(db, switch_id: int, scan_log_id: int, host_data: list):
             ip = mac_ip_map[mac]
 
         physical_port = _clean(entry.get("物理端口", "") or "")
-        key = (ip, mac, physical_port)
+        key = (ip, mac)
         old_r = old_by_key.get(key)
 
         new_vlan_bd = entry.get("VLAN/BD")
@@ -92,7 +92,8 @@ def _store_host_results(db, switch_id: int, scan_log_id: int, host_data: list):
         new_switch_type = "L3" if entry.get("交换机类型") == "三层" else "L2"
 
         if old_r and not _fields_differ(old_r, new_vlan_bd, new_vlan_type,
-                                         new_virtual_port, new_switch_type):
+                                         physical_port, new_virtual_port,
+                                         new_switch_type):
             # 核心键未变且追踪字段相同 → 仅更新时间戳，复用旧行
             old_r.updated_at = now
             old_r.scan_log_id = scan_log_id
@@ -120,7 +121,8 @@ def _store_host_results(db, switch_id: int, scan_log_id: int, host_data: list):
             handled_old_keys.add(key)
 
     # 变更检测并写入历史
-    detect_changes(db, switch_id, scan_log_id, old_by_key, new_by_key, handled_old_keys)
+    detect_changes(db, switch_id, scan_log_id, old_by_key, new_by_key,
+                   handled_old_keys, source_name=switch_name)
 
 
 def _store_route_results(db, switch_id: int, scan_log_id: int, route_data: list):
@@ -165,7 +167,7 @@ async def _run_scan_async(switch: Switch, scan_log_id: int):
     db = SessionLocal()
     try:
         if error_msg is None:
-            _store_host_results(db, switch.id, scan_log_id, host_data)
+            _store_host_results(db, switch.id, scan_log_id, host_data, switch.name)
             _store_route_results(db, switch.id, scan_log_id, route_data)
 
         scan_log = db.query(ScanLog).get(scan_log_id)

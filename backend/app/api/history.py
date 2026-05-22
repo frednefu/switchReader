@@ -16,6 +16,13 @@ def _enrich(row: History) -> dict:
     if row.switch:
         d["switch_name"] = row.switch.name
         d["switch_ip"] = row.switch.ip_address
+    # 解析 change_detail JSON
+    if row.change_detail:
+        import json
+        try:
+            d["change_detail"] = json.loads(row.change_detail)
+        except (json.JSONDecodeError, TypeError):
+            d["change_detail"] = None
     return d
 
 
@@ -23,16 +30,26 @@ def _enrich(row: History) -> dict:
 def list_history(
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
+    source_type: str = Query(None),
+    source_id: int = Query(None),
+    source_name: str = Query(None, max_length=255),
     switch_id: int = Query(None),
     change_type: str = Query(None),
     ip: str = Query("", max_length=45),
     mac: str = Query("", max_length=17),
+    vm_name: str = Query("", max_length=255),
     start_date: str = Query(None),
     end_date: str = Query(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     base = db.query(History)
+    if source_type:
+        base = base.filter(History.source_type == source_type)
+    if source_id:
+        base = base.filter(History.source_id == source_id)
+    if source_name:
+        base = base.filter(History.source_name == source_name)
     if switch_id:
         base = base.filter(History.switch_id == switch_id)
     if change_type:
@@ -41,6 +58,8 @@ def list_history(
         base = base.filter(History.ip_address.contains(ip))
     if mac:
         base = base.filter(History.mac_address.contains(mac))
+    if vm_name:
+        base = base.filter(History.change_detail.contains(vm_name))
     if start_date:
         base = base.filter(History.created_at >= start_date)
     if end_date:
@@ -64,13 +83,15 @@ def list_history(
 @router.get("/ip/{ip}", response_model=list[HistoryOut])
 def history_by_ip(
     ip: str,
+    source_type: str = Query(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    base = db.query(History).filter(History.ip_address == ip)
+    if source_type:
+        base = base.filter(History.source_type == source_type)
     rows = (
-        db.query(History)
-        .options(joinedload(History.switch))
-        .filter(History.ip_address == ip)
+        base.options(joinedload(History.switch))
         .order_by(History.id.desc())
         .limit(200)
         .all()
@@ -81,13 +102,15 @@ def history_by_ip(
 @router.get("/mac/{mac}", response_model=list[HistoryOut])
 def history_by_mac(
     mac: str,
+    source_type: str = Query(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    base = db.query(History).filter(History.mac_address == mac)
+    if source_type:
+        base = base.filter(History.source_type == source_type)
     rows = (
-        db.query(History)
-        .options(joinedload(History.switch))
-        .filter(History.mac_address == mac)
+        base.options(joinedload(History.switch))
         .order_by(History.id.desc())
         .limit(200)
         .all()

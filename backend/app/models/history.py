@@ -1,5 +1,5 @@
 import enum
-from sqlalchemy import Column, Integer, String, Enum, DateTime, ForeignKey, Index, func
+from sqlalchemy import Column, Integer, String, Enum, DateTime, ForeignKey, Index, Text, func
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -8,6 +8,11 @@ class ChangeType(str, enum.Enum):
     added = "added"
     deleted = "deleted"
     modified = "modified"
+
+
+class SourceType(str, enum.Enum):
+    switch = "switch"
+    vcenter = "vcenter"
 
 
 class History(Base):
@@ -20,6 +25,8 @@ class History(Base):
         Index("idx_hr_ip_mac", "ip_address", "mac_address"),
         Index("idx_hr_created", "created_at"),
         Index("idx_hr_change_type", "change_type"),
+        Index("idx_hr_source", "source_type"),
+        Index("idx_hr_dedup", "dedup_key"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -28,6 +35,8 @@ class History(Base):
     change_type = Column(Enum(ChangeType), nullable=False)
     ip_address = Column(String(45), nullable=False, default="")
     mac_address = Column(String(17), nullable=False)
+
+    # 旧字段（交换机专用，保持向后兼容）
     old_vlan_bd = Column(Integer, nullable=True)
     new_vlan_bd = Column(Integer, nullable=True)
     old_vlan_type = Column(String(16), default="")
@@ -38,6 +47,14 @@ class History(Base):
     new_virtual_port = Column(String(64), default="")
     old_switch_type = Column(String(4), default="")
     new_switch_type = Column(String(4), default="")
+
+    # 新字段 — 通用数据源支持
+    source_type = Column(String(16), default="switch")
+    source_id = Column(Integer, nullable=True)
+    source_name = Column(String(255), default="")
+    dedup_key = Column(String(512), default="")
+    change_detail = Column(Text, nullable=True)
+
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     switch = relationship("Switch", back_populates="history_records")

@@ -22,6 +22,11 @@ class HistoryOut(BaseModel):
     new_virtual_port: str = ""
     old_switch_type: str = ""
     new_switch_type: str = ""
+    source_type: str = "switch"
+    source_id: Optional[int] = None
+    source_name: str = ""
+    dedup_key: str = ""
+    change_detail: Optional[dict] = None
     created_at: datetime
 
     class Config:

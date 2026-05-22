@@ -1,25 +1,53 @@
-"""变更检测：以 (IP, MAC, 物理端口) 为复合键比较新旧扫描结果，生成历史记录。"""
-from app.models.history import History, ChangeType
+"""变更检测：以 (IP, MAC) 为复合键比较新旧扫描结果，生成历史记录。
 
-TRACKED_FIELDS = ["vlan_bd", "vlan_type", "virtual_port", "switch_type"]
+vCenter 以 (vm_name, vcenter_id) 为复合键。
+"""
+import json
+from app.models.history import History, ChangeType, SourceType
 
 
-def _fields_differ(old_r, new_vlan_bd, new_vlan_type, new_virtual_port, new_switch_type):
-    """比较旧记录与新的字段值是否有变化。"""
+TRACKED_FIELDS = ["vlan_bd", "vlan_type", "physical_port", "virtual_port", "switch_type"]
+
+VCENTER_TRACKED_FIELDS = [
+    "ip_address", "network_name", "resource_pool", "vm_folder",
+    "power_state", "esxi_host", "cluster", "cpu_count", "memory_gb",
+]
+
+
+def _fields_differ(old_r, new_vlan_bd, new_vlan_type, new_physical_port,
+                   new_virtual_port, new_switch_type):
+    """比较旧记录与新的字段值是否有变化（5 个追踪字段）。"""
     return (
         str(old_r.vlan_bd or "") != str(new_vlan_bd or "") or
         str(old_r.vlan_type or "") != str(new_vlan_type or "") or
+        str(old_r.physical_port or "") != str(new_physical_port or "") or
         str(old_r.virtual_port or "") != str(new_virtual_port or "") or
         str(old_r.switch_type or "") != str(new_switch_type or "")
     )
 
 
-def _make_entry(change_type, switch_id, scan_log_id, old_r, new_r):
-    """根据旧/新扫描结果构建 History 记录。"""
+def _build_change_detail(old_r, new_r, fields):
+    """根据旧/新对象构建 change_detail JSON。"""
+    detail = {}
+    for f in fields:
+        ov = str(getattr(old_r, f, None) or "")
+        nv = str(getattr(new_r, f, None) or "")
+        if ov != nv:
+            detail[f] = {"old": getattr(old_r, f, None), "new": getattr(new_r, f, None)}
+    return json.dumps(detail, ensure_ascii=False) if detail else None
+
+
+def _make_entry(change_type, switch_id, scan_log_id, old_r, new_r,
+                source_type="switch", source_name="", dedup_key=""):
+    """根据旧/新扫描结果构建 History 记录（交换机）。"""
     entry = History(
         change_type=change_type,
         switch_id=switch_id,
         scan_log_id=scan_log_id,
+        source_type=source_type,
+        source_id=switch_id,
+        source_name=source_name,
+        dedup_key=dedup_key,
     )
     if new_r is not None:
         entry.ip_address = new_r.ip_address
@@ -38,18 +66,20 @@ def _make_entry(change_type, switch_id, scan_log_id, old_r, new_r):
         entry.old_physical_port = old_r.physical_port or ""
         entry.old_virtual_port = old_r.virtual_port or ""
         entry.old_switch_type = old_r.switch_type or ""
+    if old_r is not None and new_r is not None:
+        entry.change_detail = _build_change_detail(old_r, new_r, TRACKED_FIELDS)
     return entry
 
 
 def detect_changes(db, switch_id: int, scan_log_id: int,
-                   old_by_key: dict, new_by_key: dict, handled_old_keys: set):
+                   old_by_key: dict, new_by_key: dict, handled_old_keys: set,
+                   source_name: str = ""):
     """
-    以 (IP, MAC, physical_port) 为复合键进行 diff：
-    - 新键不在旧键中 → added（仅当有历史基线时）
+    以 (IP, MAC) 为复合键进行 diff：
+    - 新键不在旧键中 → added
     - 旧键未被处理（已不在新数据中） → deleted
     - 旧键被处理但新旧行 ID 不同（字段变化导致新行插入） → modified
     """
-    # 首次扫描无基线，不产生历史记录
     if not old_by_key:
         return 0
 
@@ -57,19 +87,89 @@ def detect_changes(db, switch_id: int, scan_log_id: int,
 
     for key, new_r in new_by_key.items():
         if key not in old_by_key:
-            db.add(_make_entry(ChangeType.added, switch_id, scan_log_id, None, new_r))
+            dedup = f"{new_r.ip_address}|{new_r.mac_address}"
+            db.add(_make_entry(ChangeType.added, switch_id, scan_log_id, None, new_r,
+                              source_type=SourceType.switch, source_name=source_name,
+                              dedup_key=dedup))
             count += 1
 
     for key, old_r in old_by_key.items():
         if key not in handled_old_keys:
-            db.add(_make_entry(ChangeType.deleted, switch_id, scan_log_id, old_r, None))
+            dedup = f"{old_r.ip_address}|{old_r.mac_address}"
+            db.add(_make_entry(ChangeType.deleted, switch_id, scan_log_id, old_r, None,
+                              source_type=SourceType.switch, source_name=source_name,
+                              dedup_key=dedup))
             count += 1
 
     for key in handled_old_keys:
         old_r = old_by_key.get(key)
         new_r = new_by_key.get(key)
         if old_r and new_r and old_r.id != new_r.id:
-            db.add(_make_entry(ChangeType.modified, switch_id, scan_log_id, old_r, new_r))
+            dedup = f"{new_r.ip_address}|{new_r.mac_address}"
+            db.add(_make_entry(ChangeType.modified, switch_id, scan_log_id, old_r, new_r,
+                              source_type=SourceType.switch, source_name=source_name,
+                              dedup_key=dedup))
+            count += 1
+
+    return count
+
+
+def _vcenter_fields_differ(old_row, new_row):
+    """比较旧 VM 记录与新的字段值是否有变化。"""
+    for f in VCENTER_TRACKED_FIELDS:
+        ov = str(getattr(old_row, f, None) or "")
+        nv = str(getattr(new_row, f, None) or "")
+        if ov != nv:
+            return True
+    return False
+
+
+def _make_vcenter_entry(change_type, new_row, old_row, vcenter_id, vcenter_name):
+    """构建 vCenter 历史记录。"""
+    row = new_row if new_row is not None else old_row
+    dedup_key = f"{row.vm_name}::{vcenter_id}"
+
+    entry = History(
+        change_type=change_type,
+        source_type=SourceType.vcenter,
+        source_id=vcenter_id,
+        source_name=vcenter_name,
+        dedup_key=dedup_key,
+        ip_address=row.ip_address or "",
+        mac_address=row.mac_address or "",
+    )
+
+    if old_row is not None and new_row is not None:
+        entry.change_detail = _build_change_detail(old_row, new_row, VCENTER_TRACKED_FIELDS)
+
+    return entry
+
+
+def detect_vcenter_changes(db, vcenter_id: int, vcenter_name: str,
+                           old_by_key: dict, new_by_key: dict):
+    """以 (vm_name, vcenter_id) 为键 diff，写入 History。"""
+    if not old_by_key:
+        return 0
+
+    count = 0
+
+    for key, new_row in new_by_key.items():
+        if key not in old_by_key:
+            db.add(_make_vcenter_entry(ChangeType.added, new_row, None,
+                                       vcenter_id, vcenter_name))
+            count += 1
+
+    for key, old_row in old_by_key.items():
+        if key not in new_by_key:
+            db.add(_make_vcenter_entry(ChangeType.deleted, None, old_row,
+                                       vcenter_id, vcenter_name))
+            count += 1
+
+    for key, new_row in new_by_key.items():
+        old_row = old_by_key.get(key)
+        if old_row is not None and _vcenter_fields_differ(old_row, new_row):
+            db.add(_make_vcenter_entry(ChangeType.modified, new_row, old_row,
+                                       vcenter_id, vcenter_name))
             count += 1
 
     return count
