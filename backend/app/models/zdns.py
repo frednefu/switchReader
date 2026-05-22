@@ -63,7 +63,7 @@ class ZDNSDomainMap(Base):
     zdns_device_id = Column(Integer, ForeignKey("zdns_devices.id", ondelete="CASCADE"), nullable=False, index=True)
     domain_name = Column(String(512), default="", index=True)
     record_type = Column(String(10), default="")
-    ip_address = Column(String(45), default="")
+    ip_address = Column(String(255), default="")
     ip_category = Column(String(8), default="")
     network_type = Column(String(8), default="")
     ttl = Column(Integer, nullable=True)

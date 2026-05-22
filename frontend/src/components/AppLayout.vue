@@ -30,6 +30,10 @@
           <el-icon><HomeFilled /></el-icon>
           <span>仪表盘</span>
         </el-menu-item>
+        <el-menu-item index="/asset-profile">
+          <el-icon><DataAnalysis /></el-icon>
+          <span>资产画像</span>
+        </el-menu-item>
         <el-menu-item index="/switches">
           <el-icon><Monitor /></el-icon>
           <span>交换机管理</span>
@@ -161,6 +165,7 @@ const pageTitle = computed(() => {
     '/subnets': '地址段管理',
     '/scan-logs': '扫描日志',
     '/history': '历史记录',
+    '/asset-profile': '资产画像',
     '/users': '用户管理',
     '/profile': '个人设置',
     '/search': '搜索结果',

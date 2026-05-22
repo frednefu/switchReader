@@ -14,7 +14,7 @@ class Switch(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(128), nullable=False)
-    ip_address = Column(String(45), nullable=False, unique=True, index=True)
+    ip_address = Column(String(255), nullable=False, unique=True, index=True)
     community = Column(String(64), nullable=False)
     mib_type = Column(Enum(MibType), nullable=False, default=MibType.standard)
     snmp_port = Column(Integer, nullable=False, default=161)

@@ -35,7 +35,7 @@ class History(Base):
     switch_id = Column(Integer, ForeignKey("switches.id", ondelete="SET NULL"), nullable=True)
     scan_log_id = Column(Integer, ForeignKey("scan_logs.id", ondelete="SET NULL"), nullable=True)
     change_type = Column(Enum(ChangeType), nullable=False)
-    ip_address = Column(String(45), nullable=False, default="")
+    ip_address = Column(String(255), nullable=False, default="")
     mac_address = Column(String(17), nullable=False)
 
     # 旧字段（交换机专用，保持向后兼容）

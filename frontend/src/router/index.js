@@ -110,6 +110,12 @@ const routes = [
         meta: { title: '用户管理', admin: true },
       },
       {
+        path: 'asset-profile',
+        name: 'AssetProfile',
+        component: () => import('@/views/AssetProfile.vue'),
+        meta: { title: '资产画像' },
+      },
+      {
         path: 'profile',
         name: 'Profile',
         component: () => import('@/views/Profile.vue'),

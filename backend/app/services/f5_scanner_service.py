@@ -54,12 +54,48 @@ def _make_request(host: str, username: str, password: str, port: int, path: str)
 
 
 def _parse_destination(destination: str) -> tuple:
-    """解析 /Common/10.0.0.100:443 格式的 destination 字符串，返回 (ip, port)。"""
+    """解析 /Common/10.0.0.100:443 或 /Common/2001:db8::1.443 格式的 destination，返回 (ip, port)。
+
+    F5 IPv6 格式：2001:db8::1.443 或用方括号 [2001:db8::1]:443。
+    """
     if not destination:
         return "", None
     # 去掉 /Partition/ 前缀
     parts = destination.rsplit("/", 1)
     addr_part = parts[-1]
+
+    # IPv6 方括号形式：[2001:db8::1]:443
+    if addr_part.startswith("["):
+        bracket_end = addr_part.find("]")
+        if bracket_end > 0:
+            ip = addr_part[1:bracket_end]
+            rest = addr_part[bracket_end + 1:]
+            if rest.startswith(":"):
+                port_str = rest[1:]
+            elif rest.startswith("."):
+                port_str = rest[1:]
+            else:
+                port_str = rest
+            try:
+                return ip, int(port_str)
+            except (ValueError, TypeError):
+                return ip, None
+        return addr_part, None
+
+    # 检查是否为 IPv6（包含多个 ":" 且不是端口分隔符）
+    colon_count = addr_part.count(":")
+    if colon_count > 1:
+        # IPv6 地址，端口可能用 "." 分隔：2001:db8::1.443
+        if "." in addr_part:
+            ip, port_str = addr_part.rsplit(".", 1)
+            try:
+                return ip, int(port_str)
+            except (ValueError, TypeError):
+                pass
+        # 纯 IPv6 地址，无端口
+        return addr_part, None
+
+    # IPv4：10.0.0.100:443
     if ":" in addr_part:
         ip, port_str = addr_part.rsplit(":", 1)
         try:

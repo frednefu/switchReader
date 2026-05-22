@@ -12,10 +12,10 @@ class RouteTable(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     switch_id = Column(Integer, ForeignKey("switches.id", ondelete="CASCADE"), nullable=False)
-    target_network = Column(String(45), nullable=False)
+    target_network = Column(String(255), nullable=False)
     subnet_mask = Column(String(45), nullable=False)
-    cidr = Column(String(49), nullable=False)
-    gateway = Column(String(45), default="")
+    cidr = Column(String(255), nullable=False)
+    gateway = Column(String(255), default="")
     interface_name = Column(String(64), default="")
     route_type = Column(String(16), default="")
     protocol = Column(String(16), default="")

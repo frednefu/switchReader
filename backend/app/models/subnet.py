@@ -6,9 +6,9 @@ class Subnet(Base):
     __tablename__ = "subnets"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    subnet_cidr = Column(String(49), nullable=False, unique=True)
+    subnet_cidr = Column(String(255), nullable=False, unique=True)
     name = Column(String(128), nullable=False)
-    gateway = Column(String(45), default="")
+    gateway = Column(String(255), default="")
     vlan_id = Column(Integer, nullable=True)
     description = Column(String(256), default="")
     is_managed = Column(Boolean, nullable=False, default=True)

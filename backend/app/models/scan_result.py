@@ -14,7 +14,7 @@ class ScanResult(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     switch_id = Column(Integer, ForeignKey("switches.id", ondelete="CASCADE"), nullable=False)
-    ip_address = Column(String(45), nullable=False, default="")
+    ip_address = Column(String(255), nullable=False, default="")
     mac_address = Column(String(17), nullable=False)
     vlan_bd = Column(Integer, nullable=True)
     vlan_type = Column(String(16), default="")
