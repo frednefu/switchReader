@@ -76,6 +76,9 @@
               <el-option label="待定" value="待定" />
             </el-select>
             <el-button type="primary" @click="fetchDomainMap">查询</el-button>
+            <el-button @click="exportMap" :loading="exportingMap">
+              <el-icon><Download /></el-icon>导出
+            </el-button>
           </div>
           <el-table :data="domainMap" stripe v-loading="loadingMap" max-height="520" style="width:100%">
             <template #empty>
@@ -132,6 +135,9 @@
             <el-input v-model="searchRec" placeholder="搜索记录名称、域名、类型、值..." clearable style="width:380px"
               @keyup.enter="fetchRecords" @clear="fetchRecords" />
             <el-button type="primary" @click="fetchRecords">查询</el-button>
+            <el-button @click="exportRec" :loading="exportingRec">
+              <el-icon><Download /></el-icon>导出
+            </el-button>
           </div>
           <el-table :data="records" stripe v-loading="loadingRec" max-height="520" style="width:100%">
             <template #empty>
@@ -171,7 +177,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { getZDNSDevice, triggerZDNSScan, triggerZDNSIPScan, getZDNSDomainMap, getZDNSRecords } from '@/api/zdns'
+import { getZDNSDevice, triggerZDNSScan, triggerZDNSIPScan, getZDNSDomainMap, getZDNSRecords, exportZDNSDomainMap, exportZDNSRecords } from '@/api/zdns'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
@@ -257,6 +263,23 @@ async function handleIPScan() {
     setTimeout(() => fetchDevice(), 3000)
   } catch { /* cancelled */ }
   finally { ipScanning.value = false }
+}
+
+// 导出
+const exportingMap = ref(false)
+const exportingRec = ref(false)
+async function exportMap() {
+  exportingMap.value = true
+  try {
+    await exportZDNSDomainMap(route.params.id, {
+      search: searchMap.value, record_type: filterRecordType.value,
+      is_enabled: filterIsEnabled.value, ip_status: filterIPStatus.value,
+    })
+  } finally { exportingMap.value = false }
+}
+async function exportRec() {
+  exportingRec.value = true
+  try { await exportZDNSRecords(route.params.id, { search: searchRec.value }) } finally { exportingRec.value = false }
 }
 
 onMounted(() => { fetchDevice(); fetchDomainMap() })

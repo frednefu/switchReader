@@ -45,6 +45,9 @@
             <el-input v-model="searchApp" placeholder="搜索域名、VS名称/IP/端口、Pool、成员IP、iRule..." clearable style="width:420px"
               @keyup.enter="fetchAppMap" @clear="fetchAppMap" />
             <el-button type="primary" @click="fetchAppMap">查询</el-button>
+            <el-button @click="exportAppMap" :loading="exportingApp">
+              <el-icon><Download /></el-icon>导出
+            </el-button>
           </div>
           <el-table :data="appMap" stripe v-loading="loadingApp" max-height="520" style="width:100%">
             <template #empty>
@@ -86,6 +89,9 @@
             <el-input v-model="searchVS" placeholder="搜索 VS 名称、IP、目标、Pool..." clearable style="width:320px"
               @keyup.enter="fetchVS" @clear="fetchVS" />
             <el-button type="primary" @click="fetchVS">查询</el-button>
+            <el-button @click="exportVS" :loading="exportingVS">
+              <el-icon><Download /></el-icon>导出
+            </el-button>
           </div>
           <el-table :data="vsData" stripe v-loading="loadingVS" max-height="520" style="width:100%">
             <template #empty>
@@ -115,6 +121,9 @@
             <el-input v-model="searchPool" placeholder="搜索 Pool 名称、成员名称、成员 IP..." clearable style="width:320px"
               @keyup.enter="fetchPool" @clear="fetchPool" />
             <el-button type="primary" @click="fetchPool">查询</el-button>
+            <el-button @click="exportPool" :loading="exportingPool">
+              <el-icon><Download /></el-icon>导出
+            </el-button>
           </div>
           <el-table :data="poolData" stripe v-loading="loadingPool" max-height="520" style="width:100%">
             <template #empty>
@@ -144,6 +153,9 @@
             <el-input v-model="searchRule" placeholder="搜索 iRule 名称或内容..." clearable style="width:320px"
               @keyup.enter="fetchRules" @clear="fetchRules" />
             <el-button type="primary" @click="fetchRules">查询</el-button>
+            <el-button @click="exportRules" :loading="exportingRule">
+              <el-icon><Download /></el-icon>导出
+            </el-button>
           </div>
           <el-table :data="ruleData" stripe v-loading="loadingRule" max-height="520" style="width:100%">
             <template #empty>
@@ -174,6 +186,8 @@ import { useAuthStore } from '@/store/auth'
 import {
   getF5Device, triggerF5Scan, getF5ApplicationMap,
   getF5VirtualServers, getF5PoolMembers, getF5Rules,
+  exportF5ApplicationMap, exportF5VirtualServers,
+  exportF5PoolMembers, exportF5Rules,
 } from '@/api/f5'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -293,6 +307,28 @@ async function handleScan() {
     setTimeout(() => { fetchDevice(); fetchAppMap() }, 3000)
   } catch { /* cancelled */ }
   finally { scanning.value = false }
+}
+
+// 导出
+const exportingApp = ref(false)
+const exportingVS = ref(false)
+const exportingPool = ref(false)
+const exportingRule = ref(false)
+async function exportAppMap() {
+  exportingApp.value = true
+  try { await exportF5ApplicationMap(route.params.id, { search: searchApp.value }) } finally { exportingApp.value = false }
+}
+async function exportVS() {
+  exportingVS.value = true
+  try { await exportF5VirtualServers(route.params.id, { search: searchVS.value }) } finally { exportingVS.value = false }
+}
+async function exportPool() {
+  exportingPool.value = true
+  try { await exportF5PoolMembers(route.params.id, { search: searchPool.value }) } finally { exportingPool.value = false }
+}
+async function exportRules() {
+  exportingRule.value = true
+  try { await exportF5Rules(route.params.id, { search: searchRule.value }) } finally { exportingRule.value = false }
 }
 
 onMounted(() => { fetchDevice(); fetchAppMap() })

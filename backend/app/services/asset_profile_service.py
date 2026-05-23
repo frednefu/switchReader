@@ -352,7 +352,7 @@ def compute_stats(rows: list[dict]) -> dict:
     folders = set()
 
     for r in rows:
-        if r["域名"]:
+        if r["域名"] and r["域名"] != "不确定":
             domains.add(r["域名"])
         if r["公网IP"]:
             pub_key = (r["公网IP"], r["端口"]) if r["端口"] else (r["公网IP"],)

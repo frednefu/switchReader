@@ -95,6 +95,14 @@ class SourceScanStat(BaseModel):
     count: int
 
 
+class AssetDashboardStats(BaseModel):
+    域名总数: int = 0
+    zdns域名: int = 0
+    f5域名: int = 0
+    公网服务: int = 0
+    内网服务: int = 0
+
+
 class DashboardStats(BaseModel):
     switch_count: int = 0
     total_ips: int = 0
@@ -103,6 +111,7 @@ class DashboardStats(BaseModel):
     vcenter: VCenterStats = VCenterStats()
     f5: F5Stats = F5Stats()
     zdns: ZDNSStats = ZDNSStats()
+    asset: AssetDashboardStats = AssetDashboardStats()
     scan_by_source: List[SourceScanStat] = []
     last_scan_total: int = 0
     last_scan_success: int = 0
@@ -114,14 +123,30 @@ class DashboardStats(BaseModel):
 class SubnetOccupiedIp(BaseModel):
     ip: str
     mac: str
-    switch_name: str
-    vlan: str
+    vm_name: str = ""
+    domain: str = ""
 
 
 class SubnetOccupiedResponse(BaseModel):
     subnet_cidr: str
     subnet_name: str
     occupied: List[SubnetOccupiedIp]
+    total: int
+
+
+class AssetDomainItem(BaseModel):
+    domain_name: str
+    source: str = ""  # "ZDNS" / "F5" / "ZDNS,F5"
+
+
+class AssetServiceItem(BaseModel):
+    ip: str
+    port: str = ""
+
+
+class AssetDetailResponse(BaseModel):
+    type: str
+    items: list
     total: int
 
 

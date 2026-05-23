@@ -42,9 +42,24 @@
         <span>虚拟机清单（共 {{ total }} 台）</span>
       </template>
       <div class="filter-bar">
-        <el-input v-model="search" placeholder="搜索名称、IP、MAC、OS、集群、主机、网络、文件夹..." clearable style="width:380px"
-          @keyup.enter="fetchVMs" @clear="fetchVMs" />
-        <el-button type="primary" @click="fetchVMs">查询</el-button>
+        <el-input v-model="search" placeholder="搜索名称、IP、MAC、OS、集群、主机、网络、文件夹..." clearable style="width:300px"
+          @keyup.enter="page=1;fetchVMs()" @clear="page=1;fetchVMs()" />
+        <el-select v-model="filterPower" clearable placeholder="电源状态" style="width:110px" @change="page=1;fetchVMs()">
+          <el-option v-for="s in filterOptions.power_states" :key="s" :label="s==='poweredOn'?'开机':s==='poweredOff'?'关机':s" :value="s" />
+        </el-select>
+        <el-select v-model="filterOS" clearable placeholder="操作系统" style="width:140px" filterable @change="page=1;fetchVMs()">
+          <el-option v-for="s in filterOptions.os_names" :key="s" :label="s" :value="s" />
+        </el-select>
+        <el-select v-model="filterNetwork" clearable placeholder="网络" style="width:130px" filterable @change="page=1;fetchVMs()">
+          <el-option v-for="s in filterOptions.networks" :key="s" :label="s" :value="s" />
+        </el-select>
+        <el-select v-model="filterFolder" clearable placeholder="文件夹" style="width:130px" filterable @change="page=1;fetchVMs()">
+          <el-option v-for="s in filterOptions.folders" :key="s" :label="s" :value="s" />
+        </el-select>
+        <el-button type="primary" @click="page=1;fetchVMs()">查询</el-button>
+        <el-button @click="exportExcel" :loading="exporting">
+          <el-icon><Download /></el-icon>导出 Excel
+        </el-button>
       </div>
 
       <el-table :data="vms" stripe v-loading="loading" style="width:100%" max-height="600">
@@ -87,7 +102,8 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { getVCenter, triggerVCenterScan, getVCenterVMs } from '@/api/vcenters'
+import { getVCenter, triggerVCenterScan, getVCenterVMs, exportVCenterVMs } from '@/api/vcenters'
+import api from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
@@ -100,6 +116,11 @@ const page = ref(1)
 const size = ref(20)
 const total = ref(0)
 const search = ref('')
+const filterPower = ref('')
+const filterOS = ref('')
+const filterNetwork = ref('')
+const filterFolder = ref('')
+const filterOptions = ref({ power_states: [], os_names: [], networks: [], folders: [] })
 
 async function fetchVCenter() {
   vcenter.value = await getVCenter(route.params.id)
@@ -108,7 +129,11 @@ async function fetchVCenter() {
 async function fetchVMs() {
   loading.value = true
   try {
-    const res = await getVCenterVMs(route.params.id, { page: page.value, size: size.value, search: search.value })
+    const res = await getVCenterVMs(route.params.id, {
+      page: page.value, size: size.value, search: search.value,
+      power_state: filterPower.value, os_name: filterOS.value,
+      network_name: filterNetwork.value, vm_folder: filterFolder.value,
+    })
     vms.value = res.items
     total.value = res.total
   } finally {
@@ -127,7 +152,27 @@ async function handleScan() {
   finally { scanning.value = false }
 }
 
-onMounted(() => { fetchVCenter(); fetchVMs() })
+const exporting = ref(false)
+async function exportExcel() {
+  exporting.value = true
+  try {
+    await exportVCenterVMs(route.params.id, {
+      search: search.value, power_state: filterPower.value,
+      os_name: filterOS.value, network_name: filterNetwork.value, vm_folder: filterFolder.value,
+    })
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function fetchFilterOptions() {
+  try {
+    const { data } = await api.get(`/vcenters/${route.params.id}/vm-filter-options`)
+    filterOptions.value = data
+  } catch { /* handled */ }
+}
+
+onMounted(() => { fetchVCenter(); fetchVMs(); fetchFilterOptions() })
 </script>
 
 <style scoped>

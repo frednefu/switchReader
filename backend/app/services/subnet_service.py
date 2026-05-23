@@ -124,9 +124,13 @@ def get_available_ips(db: Session, subnet_id: int, limit: int = 50) -> dict:
     }
 
 
-def get_occupied_ips(db: Session, subnet_id: int, page: int = 1, size: int = 50) -> dict:
-    """返回子网内已占用的 IP 清单（IP/MAC/交换机/VLAN），带分页。"""
+def get_occupied_ips(
+    db: Session, subnet_id: int, page: int = 1, size: int = 50, search: str = "",
+) -> dict:
+    """返回子网内已占用的 IP 清单，IP+MAC去重，富化 VM 名和域名，带分页和搜索。"""
     from app.models.subnet import Subnet
+    from app.models.vm_inventory import VMInventory
+    from app.models.zdns import ZDNSDomainMap
 
     sn = db.query(Subnet).get(subnet_id)
     if not sn:
@@ -141,8 +145,7 @@ def get_occupied_ips(db: Session, subnet_id: int, page: int = 1, size: int = 50)
     broad_int = int(net.broadcast_address)
 
     rows = (
-        db.query(ScanResult.ip_address, ScanResult.mac_address, ScanResult.vlan_bd, Switch.name)
-        .join(Switch, ScanResult.switch_id == Switch.id, isouter=True)
+        db.query(ScanResult.ip_address, ScanResult.mac_address)
         .filter(
             ScanResult.ip_address != "",
             ScanResult.ip_address.isnot(None),
@@ -150,16 +153,61 @@ def get_occupied_ips(db: Session, subnet_id: int, page: int = 1, size: int = 50)
         .all()
     )
 
-    occupied = []
-    for ip, mac, vlan, switch_name in rows:
+    # IP+MAC 去重
+    seen = set()
+    ip_mac_list: list[tuple[str, str]] = []
+    ip_set: set[str] = set()
+    for ip, mac in rows:
         ip_int = _ip_to_int(ip)
-        if net_int < ip_int < broad_int:
-            occupied.append({
-                "ip": ip,
-                "mac": mac,
-                "switch_name": switch_name or "",
-                "vlan": str(vlan) if vlan else "",
-            })
+        if not (net_int < ip_int < broad_int):
+            continue
+        key = (ip, (mac or "").lower())
+        if key not in seen:
+            seen.add(key)
+            ip_mac_list.append((ip, mac or ""))
+            ip_set.add(ip)
+
+    # 批量查询 VM 名（MAC → vm_name）
+    all_macs = list({m.lower() for _, m in ip_mac_list if m})
+    mac_to_vm: dict[str, str] = {}
+    if all_macs:
+        vm_rows = db.query(VMInventory.mac_address, VMInventory.vm_name).all()
+        for mac_csv, vm_name in vm_rows:
+            if mac_csv and vm_name:
+                for m in mac_csv.split(","):
+                    m = m.strip().lower()
+                    if m and m in all_macs:
+                        existing = mac_to_vm.get(m, "")
+                        mac_to_vm[m] = vm_name if not existing else existing + "," + vm_name
+
+    # 批量查询域名（IP → domain_name）
+    ip_to_domain: dict[str, str] = {}
+    dm_rows = db.query(ZDNSDomainMap.ip_address, ZDNSDomainMap.domain_name).filter(
+        ZDNSDomainMap.ip_address.in_(ip_set),
+        ZDNSDomainMap.domain_name != "",
+    ).distinct().all()
+    for ip, domain in dm_rows:
+        existing = ip_to_domain.get(ip, "")
+        ip_to_domain[ip] = domain if not existing else existing + "," + domain
+
+    occupied = []
+    for ip, mac in ip_mac_list:
+        vm_name = mac_to_vm.get(mac.lower(), "")
+        domain = ip_to_domain.get(ip, "")
+        occupied.append({
+            "ip": ip,
+            "mac": mac,
+            "vm_name": vm_name,
+            "domain": domain,
+        })
+
+    # 搜索过滤
+    if search:
+        q = search.lower()
+        occupied = [r for r in occupied if (
+            q in r["ip"].lower() or q in r["mac"].lower()
+            or q in r["vm_name"].lower() or q in r["domain"].lower()
+        )]
 
     total = len(occupied)
     start = (page - 1) * size

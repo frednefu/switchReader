@@ -1,6 +1,8 @@
+import re
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.models.switch import Switch
@@ -13,11 +15,15 @@ from app.models.zdns import ZDNSDevice, ZDNSRecord, ZDNSDomainMap
 from app.models.scan_log import ScanLog, ScanStatus
 from app.models.history import History
 from app.schemas.subnet import (
-    DashboardStats, VCenterStats, VCenterResourceStat, F5Stats, ZDNSStats, ZDNSRecordTypeStat,
+    DashboardStats, AssetDashboardStats, VCenterStats, VCenterResourceStat,
+    F5Stats, ZDNSStats, ZDNSRecordTypeStat,
     SourceScanStat, SubnetUtilization, AvailableIpResponse, SubnetOccupiedResponse, SubnetOccupiedIp,
+    AssetDomainItem, AssetServiceItem, AssetDetailResponse,
 )
 from app.api.deps import get_current_user
 from app.services.subnet_service import get_subnet_utilization, get_available_ips, get_occupied_ips
+
+_IP_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 
 router = APIRouter(prefix="/dashboard", tags=["仪表盘"])
 
@@ -29,7 +35,9 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
     total_ips = db.query(func.count(func.distinct(ScanResult.ip_address))).filter(
         ScanResult.ip_address != ""
     ).scalar() or 0
-    total_macs = db.query(func.count(func.distinct(ScanResult.mac_address))).scalar() or 0
+    total_macs = db.query(func.count(func.distinct(ScanResult.mac_address))).filter(
+        ScanResult.mac_address != "", ScanResult.mac_address.isnot(None)
+    ).scalar() or 0
 
     # ── 子网 ──
     subnet_count = db.query(func.count(Subnet.id)).scalar() or 0
@@ -140,6 +148,50 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
         for row in source_rows
     ]
 
+    # ── 资产画像 ──
+    zdns_domain_set = set()
+    for (d,) in db.query(ZDNSDomainMap.domain_name).filter(
+        ZDNSDomainMap.domain_name != "",
+        ZDNSDomainMap.domain_name.notlike("*%"),
+        ~ZDNSDomainMap.domain_name.contains("in-addr.arpa"),
+    ).distinct().all():
+        zdns_domain_set.add(d)
+    f5_domain_set = set()
+    for (d,) in db.query(F5ApplicationMap.domain_name).filter(
+        F5ApplicationMap.domain_name != "",
+    ).distinct().all():
+        f5_domain_set.add(d)
+    # 排除 VS 伪域名（不含 "." 的名称，如 vs_202_118_223_70_443）
+    real_f5 = {d for d in f5_domain_set if '.' in d}
+    # 有效域名 = ZDNS + F5 真实域名（排除 VS 伪域名，与资产画像口径一致）
+    valid_domains = zdns_domain_set | real_f5
+
+    # 公网服务：只统计 real_f5 域名关联的 F5 VS (IP:port)
+    pub_services = set()
+    for am in db.query(F5ApplicationMap.domain_name, F5ApplicationMap.vs_ip, F5ApplicationMap.vs_port).filter(
+        F5ApplicationMap.domain_name.in_(real_f5),
+        F5ApplicationMap.vs_ip != "",
+        F5ApplicationMap.vs_port.isnot(None),
+    ).distinct().all():
+        pub_services.add((am.vs_ip, str(am.vs_port)))
+
+    # 内网服务：只统计 real_f5 域名关联的内网成员 (IP:port)
+    int_services = set()
+    for am in db.query(F5ApplicationMap.member_ip, F5ApplicationMap.member_port).filter(
+        F5ApplicationMap.domain_name.in_(real_f5),
+        F5ApplicationMap.member_ip != "",
+        F5ApplicationMap.member_port.isnot(None),
+    ).distinct().all():
+        int_services.add((am.member_ip, str(am.member_port)))
+
+    asset = AssetDashboardStats(
+        域名总数=len(valid_domains),
+        zdns域名=len(zdns_domain_set),
+        f5域名=len(real_f5),
+        公网服务=len(pub_services),
+        内网服务=len(int_services),
+    )
+
     # ── 最近扫描成功率 ──
     last_scan_total = db.query(func.count(ScanLog.id)).scalar() or 0
     last_scan_success = db.query(func.count(ScanLog.id)).filter(
@@ -157,6 +209,7 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
         vcenter=vcenter,
         f5=f5,
         zdns=zdns,
+        asset=asset,
         scan_by_source=scan_by_source,
         last_scan_total=last_scan_total,
         last_scan_success=last_scan_success,
@@ -185,8 +238,212 @@ def subnet_occupied_ips(
     subnet_id: int = Query(...),
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
+    search: str = Query("", description="全局搜索（IP/MAC/VM名称/域名）"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    result = get_occupied_ips(db, subnet_id, page, size)
+    result = get_occupied_ips(db, subnet_id, page, size, search=search)
     return SubnetOccupiedResponse(**result)
+
+
+@router.get("/asset-details", response_model=AssetDetailResponse)
+def asset_details(
+    type: str = Query(..., description="domains | public_services | internal_services"),
+    search: str = Query("", description="搜索关键词"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    q = search.lower() if search else ""
+
+    if type == "domains":
+        # 收集去重域名 + 来源标记
+        zdns_set = set()
+        for (d,) in db.query(ZDNSDomainMap.domain_name).filter(
+            ZDNSDomainMap.domain_name != "",
+            ZDNSDomainMap.domain_name.notlike("*%"),
+            ~ZDNSDomainMap.domain_name.contains("in-addr.arpa"),
+        ).distinct().all():
+            zdns_set.add(d)
+
+        f5_real = set()
+        for (d,) in db.query(F5ApplicationMap.domain_name).filter(
+            F5ApplicationMap.domain_name != "",
+        ).distinct().all():
+            if '.' in d:
+                f5_real.add(d)
+
+        items = []
+        all_domains = zdns_set | f5_real
+        for d in sorted(all_domains):
+            if q and q not in d.lower():
+                continue
+            src_parts = []
+            if d in zdns_set:
+                src_parts.append("ZDNS")
+            if d in f5_real:
+                src_parts.append("F5")
+            items.append(AssetDomainItem(domain_name=d, source=",".join(src_parts)))
+
+        return AssetDetailResponse(type=type, items=items, total=len(items))
+
+    if type == "public_services":
+        # 只统计 real_f5 域名关联的 F5 VS (IP:port)
+        real_f5 = set()
+        for (d,) in db.query(F5ApplicationMap.domain_name).filter(
+            F5ApplicationMap.domain_name != "",
+        ).distinct().all():
+            if '.' in d:
+                real_f5.add(d)
+
+        items = []
+        seen = set()
+        for am in db.query(F5ApplicationMap.vs_ip, F5ApplicationMap.vs_port).filter(
+            F5ApplicationMap.domain_name.in_(real_f5),
+            F5ApplicationMap.vs_ip != "",
+            F5ApplicationMap.vs_port.isnot(None),
+        ).distinct().all():
+            key = (am.vs_ip, str(am.vs_port))
+            if key in seen:
+                continue
+            seen.add(key)
+            if q and q not in am.vs_ip.lower() and q not in str(am.vs_port):
+                continue
+            items.append(AssetServiceItem(ip=am.vs_ip, port=str(am.vs_port)))
+
+        items.sort(key=lambda x: (x.ip, x.port))
+        return AssetDetailResponse(type=type, items=items, total=len(items))
+
+    if type == "internal_services":
+        # 只统计 real_f5 域名关联的内网成员 (IP:port)
+        real_f5 = set()
+        for (d,) in db.query(F5ApplicationMap.domain_name).filter(
+            F5ApplicationMap.domain_name != "",
+        ).distinct().all():
+            if '.' in d:
+                real_f5.add(d)
+
+        items = []
+        seen = set()
+        for am in db.query(F5ApplicationMap.member_ip, F5ApplicationMap.member_port).filter(
+            F5ApplicationMap.domain_name.in_(real_f5),
+            F5ApplicationMap.member_ip != "",
+            F5ApplicationMap.member_port.isnot(None),
+        ).distinct().all():
+            key = (am.member_ip, str(am.member_port))
+            if key in seen:
+                continue
+            seen.add(key)
+            if q and q not in am.member_ip.lower() and q not in str(am.member_port):
+                continue
+            items.append(AssetServiceItem(ip=am.member_ip, port=str(am.member_port)))
+
+        items.sort(key=lambda x: (x.ip, x.port))
+        return AssetDetailResponse(type=type, items=items, total=len(items))
+
+    return AssetDetailResponse(type=type, items=[], total=0)
+
+
+class IpMacItem(BaseModel):
+    value: str
+
+
+class IpMacListResponse(BaseModel):
+    items: list[IpMacItem]
+    total: int
+
+
+@router.get("/ip-mac-list", response_model=IpMacListResponse)
+def ip_mac_list(
+    type: str = Query("ip", description="ip 或 mac"),
+    page: int = Query(1, ge=1),
+    size: int = Query(50, ge=1, le=200),
+    search: str = Query("", description="搜索"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    q = search.lower() if search else ""
+
+    if type == "ip":
+        rows = db.query(ScanResult.ip_address).filter(
+            ScanResult.ip_address != "", ScanResult.ip_address.isnot(None),
+        ).all()
+        seen = set()
+        all_vals: list[str] = []
+        for (ip,) in rows:
+            if ip not in seen:
+                seen.add(ip)
+                if not q or q in ip.lower():
+                    all_vals.append(ip)
+    else:
+        rows = db.query(ScanResult.mac_address).filter(
+            ScanResult.mac_address != "", ScanResult.mac_address.isnot(None),
+        ).all()
+        seen = set()
+        all_vals: list[str] = []
+        for (mac,) in rows:
+            m = mac.lower()
+            if m not in seen:
+                seen.add(m)
+                if not q or q in mac.lower():
+                    all_vals.append(mac)
+
+    total = len(all_vals)
+    start = (page - 1) * size
+    paged = all_vals[start:start + size]
+
+    return IpMacListResponse(
+        items=[IpMacItem(value=v) for v in paged],
+        total=total,
+    )
+
+
+@router.get("/vm-details")
+def vm_details(
+    page: int = Query(1, ge=1),
+    size: int = Query(30, ge=1, le=200),
+    search: str = Query("", description="搜索名称/IP/MAC/OS/集群/主机/网络/文件夹等"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    q = search.lower() if search else ""
+    base = db.query(VMInventory)
+
+    if q:
+        if _IP_RE.match(search):
+            base = base.filter(VMInventory.ip_address == search)
+        else:
+            base = base.filter(
+                VMInventory.vm_name.ilike(f"%{q}%")
+                | VMInventory.ip_address.ilike(f"%{q}%")
+                | VMInventory.mac_address.ilike(f"%{q}%")
+                | VMInventory.os_name.ilike(f"%{q}%")
+                | VMInventory.cluster.ilike(f"%{q}%")
+                | VMInventory.esxi_host.ilike(f"%{q}%")
+                | VMInventory.network_name.ilike(f"%{q}%")
+                | VMInventory.vm_folder.ilike(f"%{q}%")
+                | VMInventory.datacenter.ilike(f"%{q}%")
+            )
+
+    total = base.count()
+    rows = base.order_by(VMInventory.vm_name).offset((page - 1) * size).limit(size).all()
+
+    items = []
+    for vm in rows:
+        items.append({
+            "vm_name": vm.vm_name,
+            "power_state": vm.power_state or "",
+            "ip_address": vm.ip_address or "",
+            "mac_address": vm.mac_address or "",
+            "os_name": vm.os_name or "",
+            "cpu_count": vm.cpu_count or 0,
+            "memory_gb": vm.memory_gb or 0.0,
+            "datacenter": vm.datacenter or "",
+            "cluster": vm.cluster or "",
+            "esxi_host": vm.esxi_host or "",
+            "network_name": vm.network_name or "",
+            "vlan_id": vm.vlan_id or "",
+            "resource_pool": vm.resource_pool or "",
+            "vm_folder": vm.vm_folder or "",
+        })
+
+    return {"items": items, "total": total, "page": page, "size": size}

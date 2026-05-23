@@ -14,6 +14,7 @@ from app.schemas.scan import PaginatedResponse
 from app.api.deps import get_current_user, require_admin
 from app.services.f5_scanner_service import trigger_f5_scan, test_f5_connection
 from app.services.scheduler_service import refresh_f5_job
+from app.utils.export import export_to_excel
 
 router = APIRouter(prefix="/f5", tags=["F5"])
 
@@ -302,3 +303,118 @@ def list_application_map(
         items=[F5ApplicationMapOut.model_validate(r) for r in items],
         total=total, page=page, size=size, pages=pages,
     )
+
+
+# ─── 导出端点 ───
+
+@router.get("/{device_id}/virtual-servers/export")
+def export_virtual_servers(
+    device_id: int,
+    search: str = Query("", max_length=256),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    dev = db.query(F5Device).get(device_id)
+    if not dev:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="F5 设备不存在")
+    q = db.query(F5VirtualServer).filter(F5VirtualServer.f5_device_id == device_id)
+    if search:
+        q = q.filter(
+            (F5VirtualServer.name.contains(search)) |
+            (F5VirtualServer.vs_ip.contains(search)) |
+            (F5VirtualServer.destination.contains(search)) |
+            (F5VirtualServer.pool_name.contains(search))
+        )
+    items = q.order_by(F5VirtualServer.id).all()
+    headers = ["名称", "目标地址", "VS IP", "VS 端口", "Pool", "iRules"]
+    xls_rows = [[
+        r.name, r.destination, r.vs_ip,
+        str(r.vs_port) if r.vs_port is not None else "",
+        r.pool_name, r.rules,
+    ] for r in items]
+    dev_name = dev.name.replace(" ", "_")
+    return export_to_excel(headers, xls_rows, f"f5_vs_{dev_name}.xlsx", sheet_title=f"{dev_name}_虚拟服务器")
+
+
+@router.get("/{device_id}/pool-members/export")
+def export_pool_members(
+    device_id: int,
+    search: str = Query("", max_length=256),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    dev = db.query(F5Device).get(device_id)
+    if not dev:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="F5 设备不存在")
+    q = db.query(F5PoolMember).filter(F5PoolMember.f5_device_id == device_id)
+    if search:
+        q = q.filter(
+            (F5PoolMember.pool_name.contains(search)) |
+            (F5PoolMember.member_name.contains(search)) |
+            (F5PoolMember.member_ip.contains(search))
+        )
+    items = q.order_by(F5PoolMember.id).all()
+    headers = ["Pool名称", "成员名称", "成员IP", "成员端口", "状态"]
+    xls_rows = [[
+        r.pool_name, r.member_name, r.member_ip,
+        str(r.member_port) if r.member_port is not None else "",
+        r.member_state,
+    ] for r in items]
+    dev_name = dev.name.replace(" ", "_")
+    return export_to_excel(headers, xls_rows, f"f5_pool_{dev_name}.xlsx", sheet_title=f"{dev_name}_Pool成员")
+
+
+@router.get("/{device_id}/rules/export")
+def export_rules(
+    device_id: int,
+    search: str = Query("", max_length=256),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    dev = db.query(F5Device).get(device_id)
+    if not dev:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="F5 设备不存在")
+    q = db.query(F5Rule).filter(F5Rule.f5_device_id == device_id)
+    if search:
+        q = q.filter(
+            (F5Rule.rule_name.contains(search)) |
+            (F5Rule.rule_content.contains(search))
+        )
+    items = q.order_by(F5Rule.id).all()
+    headers = ["规则名称", "规则内容"]
+    xls_rows = [[r.rule_name, r.rule_content or ""] for r in items]
+    dev_name = dev.name.replace(" ", "_")
+    return export_to_excel(headers, xls_rows, f"f5_rules_{dev_name}.xlsx", sheet_title=f"{dev_name}_iRules")
+
+
+@router.get("/{device_id}/application-map/export")
+def export_application_map(
+    device_id: int,
+    search: str = Query("", max_length=256),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    dev = db.query(F5Device).get(device_id)
+    if not dev:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="F5 设备不存在")
+    q = db.query(F5ApplicationMap).filter(F5ApplicationMap.f5_device_id == device_id)
+    if search:
+        q = q.filter(
+            (F5ApplicationMap.domain_name.contains(search)) |
+            (F5ApplicationMap.vs_name.contains(search)) |
+            (F5ApplicationMap.vs_ip.contains(search)) |
+            (F5ApplicationMap.pool_name.contains(search)) |
+            (F5ApplicationMap.member_ip.contains(search)) |
+            (F5ApplicationMap.rule_name.contains(search))
+        )
+    items = q.order_by(F5ApplicationMap.id).all()
+    headers = ["域名", "VS名称", "VS IP", "VS 端口", "Pool", "规则名称", "成员IP", "成员端口", "成员状态", "来源"]
+    xls_rows = [[
+        r.domain_name, r.vs_name, r.vs_ip,
+        str(r.vs_port) if r.vs_port is not None else "",
+        r.pool_name, r.rule_name, r.member_ip,
+        str(r.member_port) if r.member_port is not None else "",
+        r.member_state, r.source,
+    ] for r in items]
+    dev_name = dev.name.replace(" ", "_")
+    return export_to_excel(headers, xls_rows, f"f5_appmap_{dev_name}.xlsx", sheet_title=f"{dev_name}_应用映射")

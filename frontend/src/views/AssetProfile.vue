@@ -5,7 +5,7 @@
     <!-- ═══════════ 统计卡片 ═══════════ -->
     <el-row :gutter="12" class="stats-row">
       <el-col :span="3">
-        <div class="stat-card">
+        <div class="stat-card" @click="openDetail('zdnsDomains')">
           <div class="stat-icon" style="background:rgba(99,102,241,0.12);color:#6366f1">
             <el-icon><Link /></el-icon>
           </div>
@@ -16,7 +16,7 @@
         </div>
       </el-col>
       <el-col :span="3">
-        <div class="stat-card">
+        <div class="stat-card" @click="openDetail('f5Domains')">
           <div class="stat-icon" style="background:rgba(16,185,129,0.12);color:#10b981">
             <el-icon><Monitor /></el-icon>
           </div>
@@ -27,7 +27,7 @@
         </div>
       </el-col>
       <el-col :span="3">
-        <div class="stat-card">
+        <div class="stat-card" @click="openDetail('pubIPPorts')">
           <div class="stat-icon" style="background:rgba(6,182,212,0.12);color:#06b6d4">
             <el-icon><Share /></el-icon>
           </div>
@@ -38,7 +38,7 @@
         </div>
       </el-col>
       <el-col :span="3">
-        <div class="stat-card">
+        <div class="stat-card" @click="openDetail('intIPPorts')">
           <div class="stat-icon" style="background:rgba(239,68,68,0.12);color:#ef4444">
             <el-icon><Connection /></el-icon>
           </div>
@@ -49,7 +49,7 @@
         </div>
       </el-col>
       <el-col :span="3">
-        <div class="stat-card">
+        <div class="stat-card" @click="openDetail('vmNames')">
           <div class="stat-icon" style="background:rgba(245,158,11,0.12);color:#f59e0b">
             <el-icon><Cloudy /></el-icon>
           </div>
@@ -60,7 +60,7 @@
         </div>
       </el-col>
       <el-col :span="3">
-        <div class="stat-card">
+        <div class="stat-card" @click="openDetail('vmIPs')">
           <div class="stat-icon" style="background:rgba(234,179,8,0.12);color:#ca8a04">
             <el-icon><Tickets /></el-icon>
           </div>
@@ -71,7 +71,7 @@
         </div>
       </el-col>
       <el-col :span="3">
-        <div class="stat-card">
+        <div class="stat-card" @click="openDetail('vlans')">
           <div class="stat-icon" style="background:rgba(139,92,246,0.12);color:#8b5cf6">
             <el-icon><Grid /></el-icon>
           </div>
@@ -82,7 +82,7 @@
         </div>
       </el-col>
       <el-col :span="3">
-        <div class="stat-card">
+        <div class="stat-card" @click="openDetail('folders')">
           <div class="stat-icon" style="background:rgba(236,72,153,0.12);color:#db2777">
             <el-icon><FolderOpened /></el-icon>
           </div>
@@ -117,6 +117,9 @@
       <el-select v-model="filterNetwork" clearable filterable placeholder="网络名称" style="width:160px" @change="page=1;fetchData()">
         <el-option v-for="n in networkNames" :key="n" :label="n" :value="n" />
       </el-select>
+      <el-button @click="exportExcel" :loading="exporting">
+        <el-icon><Download /></el-icon>导出 Excel
+      </el-button>
       <span class="total-hint">共 {{ total }} 条</span>
     </div>
 
@@ -183,14 +186,41 @@
         @current-change="onPageChange"
       />
     </div>
+
+    <!-- ═══════════ 统计明细弹窗 ═══════════ -->
+    <el-dialog v-model="detailVisible" :title="detailTitle" width="600px" @closed="detailItems=[];detailSearch=''">
+      <div class="dialog-search-bar" v-if="detailItems.length > 0 || detailSearch">
+        <el-input v-model="detailSearch" placeholder="搜索..." clearable style="width:280px"
+          @keyup.enter @clear="()=>{}" />
+      </div>
+      <div v-if="filteredDetailItems.length === 0" style="text-align:center;padding:20px;color:var(--color-text-muted);">暂无数据</div>
+      <el-table v-else :data="filteredDetailItems" stripe size="small" max-height="400">
+        <template v-if="detailType === 'zdnsDomains' || detailType === 'f5Domains'">
+          <el-table-column prop="domain" label="域名" min-width="350" show-overflow-tooltip />
+          <el-table-column prop="source" label="来源" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.source==='ZDNS'?'primary':'success'" size="small">{{ row.source }}</el-tag>
+            </template>
+          </el-table-column>
+        </template>
+        <template v-else-if="detailType === 'pubIPPorts' || detailType === 'intIPPorts'">
+          <el-table-column prop="ip" label="IP 地址" width="200" />
+          <el-table-column prop="port" label="端口" width="100" />
+        </template>
+        <template v-else>
+          <el-table-column prop="value" label="名称" min-width="350" show-overflow-tooltip />
+        </template>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { getAssetProfile } from '@/api/asset'
+import { getAssetProfile, exportAssetProfile } from '@/api/asset'
 
 const loading = ref(false)
+const exporting = ref(false)
 const page = ref(1)
 const size = ref(50)
 const total = ref(0)
@@ -210,8 +240,8 @@ const ds = computed(() => {
   const folders = new Set()
   for (const r of rawRows.value) {
     const src = r['来源'] || ''
-    if (src.includes('ZDNS')) zdnsDomains.add(r['域名'])
-    if (src.includes('F5')) f5Domains.add(r['域名'])
+    if (src.includes('ZDNS') && r['域名'] !== '不确定') zdnsDomains.add(r['域名'])
+    if (src.includes('F5') && r['域名'] !== '不确定') f5Domains.add(r['域名'])
     if (r['公网IP']) pubIPPorts.add(r['端口'] ? `${r['公网IP']}:${r['端口']}` : r['公网IP'])
     if (r['内网服务IP']) intIPPorts.add(r['内网端口'] ? `${r['内网服务IP']}:${r['内网端口']}` : r['内网服务IP'])
     if (r['虚拟机名称']) {
@@ -236,6 +266,80 @@ const ds = computed(() => {
     folders: folders.size,
   }
 })
+
+// ── 统计明细弹窗 ──
+const detailVisible = ref(false)
+const detailType = ref('')
+const detailTitle = ref('')
+const detailItems = ref([])
+const detailSearch = ref('')
+
+const DETAIL_LABELS = {
+  zdnsDomains: 'ZDNS 域名明细',
+  f5Domains: 'F5 域名明细',
+  pubIPPorts: '公网IP:端口明细',
+  intIPPorts: '内网服务明细',
+  vmNames: '虚拟机名称明细',
+  vmIPs: 'VM IP 明细',
+  vlans: 'VLAN 明细',
+  folders: '文件夹明细',
+}
+
+const filteredDetailItems = computed(() => {
+  if (!detailSearch.value) return detailItems.value
+  const q = detailSearch.value.toLowerCase()
+  return detailItems.value.filter(item => {
+    const val = item.value || item.domain || item.ip || ''
+    return val.toLowerCase().includes(q) || (item.port || '').toLowerCase().includes(q) || (item.source || '').toLowerCase().includes(q)
+  })
+})
+
+function openDetail(type) {
+  detailType.value = type
+  detailSearch.value = ''
+  detailTitle.value = DETAIL_LABELS[type] || ''
+  detailVisible.value = true
+
+  const set = new Map()
+  const srcFilter = type === 'zdnsDomains' ? 'ZDNS' : ''
+
+  for (const r of rawRows.value) {
+    const src = r['来源'] || ''
+
+    if (type === 'zdnsDomains' || type === 'f5Domains') {
+      if (srcFilter && !src.includes(srcFilter)) continue
+      if (!srcFilter && !src.includes('F5')) continue
+      const d = r['域名']
+      if (!d || d === '不确定') continue
+      const key = `${d}|${srcFilter || 'F5'}`
+      if (!set.has(key)) set.set(key, { domain: d, source: srcFilter || 'F5' })
+    } else if (type === 'pubIPPorts') {
+      if (!r['公网IP']) continue
+      const ip = r['公网IP']; const port = r['端口'] || ''
+      const key = `${ip}:${port}`
+      if (!set.has(key)) set.set(key, { ip, port })
+    } else if (type === 'intIPPorts') {
+      if (!r['内网服务IP']) continue
+      const ip = r['内网服务IP']; const port = r['内网端口'] || ''
+      const key = `${ip}:${port}`
+      if (!set.has(key)) set.set(key, { ip, port })
+    } else if (type === 'vmNames') {
+      if (!r['虚拟机名称']) continue
+      for (const v of r['虚拟机名称'].split(',')) { const t = v.trim(); if (t && !set.has(t)) set.set(t, { value: t }) }
+    } else if (type === 'vmIPs') {
+      if (!r['IP地址']) continue
+      for (const v of r['IP地址'].split(',')) { const t = v.trim(); if (t && !set.has(t)) set.set(t, { value: t }) }
+    } else if (type === 'vlans') {
+      if (!r['VLAN']) continue
+      for (const v of r['VLAN'].split(',')) { const t = v.trim(); if (t && !set.has(t)) set.set(t, { value: t }) }
+    } else if (type === 'folders') {
+      const v = r['文件夹'] || ''
+      if (v && !set.has(v)) set.set(v, { value: v })
+    }
+  }
+
+  detailItems.value = Array.from(set.values())
+}
 
 const sortBy = ref('域名')
 const sortDir = ref('asc')
@@ -401,6 +505,20 @@ async function fetchData() {
     /* handled */
   } finally {
     loading.value = false
+  }
+}
+
+async function exportExcel() {
+  exporting.value = true
+  try {
+    await exportAssetProfile({
+      search: search.value,
+      status: filterStatus.value,
+      network: filterNetwork.value,
+      source: filterSource.value,
+    })
+  } finally {
+    exporting.value = false
   }
 }
 

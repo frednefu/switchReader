@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
+import re
 from math import ceil
 
 from app.database import get_db
@@ -9,6 +10,9 @@ from app.models.route_table import RouteTable
 from app.models.switch import Switch
 from app.schemas.scan import ScanResultOut, RouteTableOut, PaginatedResponse
 from app.api.deps import get_current_user
+from app.utils.export import export_to_excel
+
+_IP_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 
 router = APIRouter(prefix="/results", tags=["扫描结果"])
 
@@ -58,7 +62,10 @@ def list_results(
     if mac:
         base = base.filter(ScanResult.mac_address.contains(mac))
     if ip:
-        base = base.filter(ScanResult.ip_address.contains(ip))
+        if _IP_RE.match(ip):
+            base = base.filter(ScanResult.ip_address == ip)
+        else:
+            base = base.filter(ScanResult.ip_address.contains(ip))
     total = base.count()
     pages = ceil(total / size) if total > 0 else 0
     items = (
@@ -101,3 +108,38 @@ def list_routes(
         items=[_enrich_route(r) for r in items],
         total=total, page=page, size=size, pages=pages,
     )
+
+
+@router.get("/export")
+def export_results(
+    switch_id: int = Query(None),
+    mac: str = Query("", max_length=17),
+    ip: str = Query("", max_length=45),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    latest = _latest_ids_subquery(db)
+    base = db.query(ScanResult).filter(
+        ScanResult.id.in_(db.query(latest.c.max_id))
+    )
+    if switch_id:
+        base = base.filter(ScanResult.switch_id == switch_id)
+    if mac:
+        base = base.filter(ScanResult.mac_address.contains(mac))
+    if ip:
+        if _IP_RE.match(ip):
+            base = base.filter(ScanResult.ip_address == ip)
+        else:
+            base = base.filter(ScanResult.ip_address.contains(ip))
+    items = base.options(joinedload(ScanResult.switch)).order_by(ScanResult.id.desc()).all()
+    enriched = [_enrich_result(r) for r in items]
+    headers = ["交换机名称", "交换机IP", "IP地址", "MAC地址", "VLAN/BD", "VLAN类型", "物理端口", "虚拟端口", "交换机类型", "采集时间"]
+    xls_rows = [[
+        r.get("switch_name", ""), r.get("switch_ip", ""),
+        r.get("ip_address", ""), r.get("mac_address", ""),
+        r.get("vlan_bd", ""), r.get("vlan_type", ""),
+        r.get("physical_port", ""), r.get("virtual_port", ""),
+        r.get("switch_type", ""),
+        r.get("created_at", "").strftime("%Y-%m-%d %H:%M:%S") if r.get("created_at") else "",
+    ] for r in enriched]
+    return export_to_excel(headers, xls_rows, "scan_results.xlsx", sheet_title="扫描结果")

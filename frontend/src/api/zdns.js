@@ -47,3 +47,25 @@ export function getZDNSRecords(id, params) {
 export function getZDNSDomainMap(id, params) {
   return api.get(`/zdns/${id}/domain-map`, { params }).then((r) => r.data)
 }
+
+export function exportZDNSRecords(id, params) {
+  return api.get(`/zdns/${id}/records/export`, { params, responseType: 'blob' }).then((r) => {
+    const url = URL.createObjectURL(r.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `zdns_records_${id}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+  })
+}
+
+export function exportZDNSDomainMap(id, params) {
+  return api.get(`/zdns/${id}/domain-map/export`, { params, responseType: 'blob' }).then((r) => {
+    const url = URL.createObjectURL(r.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `zdns_domainmap_${id}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+  })
+}

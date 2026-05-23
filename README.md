@@ -25,19 +25,19 @@
 
 ## 功能
 
-- **仪表盘** — 全栈资源概览，集成交换机/vCenter/F5/ZDNS 多数据源统计卡片（可点击跳转），VM 开关机/Pool 状态/DNS 记录类型/扫描次数环形图与饼图，地址段利用率图表点击下探已占用 IP 明细，扫描成功率摘要，可用 IP 查询
+- **仪表盘** — 全栈资源概览，集成交换机/vCenter/F5/ZDNS 多数据源统计卡片（点击弹出明细对话框：域名/公网服务/内网服务/IP地址/MAC地址/虚拟机，含搜索），VM 开关机/Pool 状态/DNS 记录类型/扫描次数环形图与饼图，地址段利用率图表点击下探已占用 IP 明细，扫描成功率摘要，可用 IP 查询
 - **交换机管理** — CRUD、批量导入(Excel/CSV)、模板下载、SNMP 连接测试、扫描状态/结果展示、全部扫描/全部删除
 - **SNMP 扫描** — 自动识别 L2/L3 交换机，支持标准 MIB 和华为私有 MIB，ARP+FDB 数据合并，空 IP 自动回填
 - **扫描结果** — 主机信息（IP/MAC/VLAN/端口/交换机来源）翻页列表（自动去重显示最新）、路由表翻页列表
 - **扫描日志** — 统一的扫描记录中心，支持按数据源（交换机/vCenter/F5/ZDNS）和状态筛选、分页、清除
 - **地址段管理** — CRUD、IP 可用性计算、利用率统计
-- **搜索** — IP 或 MAC 快速查找，关联交换机信息
+- **搜索** — 全局搜索二级策略（资产画像优先，扫描结果兜底），完整 IP 自动精确匹配（避免模糊搜索定位不准），MAC 模糊查找
 - **历史记录** — 交换机以 (IP, MAC) 为复合键，vCenter 以 (VM名称, vCenter) 为复合键，F5 以 (VS名称, 域名, Pool) 为复合键，ZDNS 以 (域名, 记录类型) 为复合键，字段变化时自动记录新增/删除/修改，JSON change_detail 字段级新旧值对比，支持按 IP/MAC/VM名称/日期范围过滤，前端 Tab 式切换
 - **用户认证** — JWT + bcrypt，admin/user 角色
 - **用户管理** — 管理员可创建/编辑/删除/重置密码用户，搜索过滤，角色和状态管理
 - **个人设置** — 修改邮箱、修改密码
 - **定时扫描** — APScheduler 后台调度，按设备配置的扫描间隔自动触发采集
-- **vCenter 管理** — CRUD、连接测试、pyVmomi 扫描采集虚拟机清单（16 个字段：数据中心/集群/ESXi/资源池/文件夹/名称/电源/IP/MAC/网络/VLAN/OS/CPU/内存/备注），支持多字段搜索
+- **vCenter 管理** — CRUD、连接测试、pyVmomi 扫描采集虚拟机清单（16 个字段：数据中心/集群/ESXi/资源池/文件夹/名称/电源/IP/MAC/网络/VLAN/OS/CPU/内存/备注），扫描后自动通过 MAC 匹配交换机数据回填缺失 IP，支持多字段搜索 + 电源/OS/网络/文件夹下拉筛选
 - **VM 清单** — 独立 `vm_inventory` 表，按 vCenter/VM 名称/IP 搜索过滤，分页展示
 - **F5 负载均衡管理** — CRUD、连接测试、iControl REST API 扫描采集虚拟服务器+Pool成员+iRules，自动构建域名→VS IP:端口→Pool 成员 IP:端口的应用映射清单，支持搜索（域名/VS名称/IP/端口/Pool/成员IP/iRule），定时扫描，历史变更追踪
 - **F5 原始数据** — 虚拟服务器、Pool 成员（含 up/down 状态）、iRules（含 TCL 脚本内容）三个 Tab 各自支持搜索和分页
@@ -126,7 +126,10 @@ npm run dev
 | GET | /api/dashboard/stats | 仪表盘多源统计（含 vCenter/F5/ZDNS 嵌套数据） |
 | GET | /api/dashboard/subnet-utilization | 地址段利用率 |
 | GET | /api/dashboard/available-ips | 可用 IP 列表 |
-| GET | /api/dashboard/subnet-occupied-ips | 子网已占用 IP 清单（分页，含交换机/MAC/VLAN） |
+| GET | /api/dashboard/subnet-occupied-ips | 子网已占用 IP 清单（分页，含交换机/MAC/VLAN，搜索） |
+| GET | /api/dashboard/asset-details | 资产明细（域名/公网服务/内网服务，搜索） |
+| GET | /api/dashboard/ip-mac-list | IP 或 MAC 去重列表（分页+搜索，独立去重） |
+| GET | /api/dashboard/vm-details | VM 明细（分页+搜索，含完整字段） |
 | CRUD | /api/subnets | 地址段管理 |
 | GET | /api/search | IP/MAC 搜索 |
 | GET | /api/history | 历史记录（分页+按数据源/设备/日期过滤） |
@@ -143,6 +146,7 @@ npm run dev
 | DELETE | /api/vcenters/all | 删除所有 vCenter 及关联 VM 数据 |
 | GET | /api/vcenters/vms | 全局 VM 清单（分页+过滤） |
 | GET | /api/vcenters/{id}/vms | 某 vCenter 的 VM 清单（分页+过滤） |
+| GET | /api/vcenters/{id}/vm-filter-options | VM 过滤下拉选项（电源/OS/网络/文件夹） |
 | CRUD | /api/f5 | F5 设备管理 |
 | POST | /api/f5/test | F5 连接测试 |
 | POST | /api/f5/{id}/scan | 触发 F5 扫描 |

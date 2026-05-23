@@ -14,6 +14,7 @@ from app.schemas.scan import PaginatedResponse
 from app.api.deps import get_current_user, require_admin
 from app.services.zdns_scanner_service import trigger_zdns_scan, test_zdns_connection
 from app.services.scheduler_service import refresh_zdns_job, refresh_zdns_ip_job
+from app.utils.export import export_to_excel
 
 router = APIRouter(prefix="/zdns", tags=["ZDNS"])
 
@@ -349,3 +350,82 @@ def list_domain_map(
     results = _compute_ip_status_batch(db, items)
 
     return {"items": results, "total": total, "page": page, "size": size, "pages": pages}
+
+
+# ─── 导出端点 ───
+
+@router.get("/{device_id}/records/export")
+def export_records(
+    device_id: int,
+    search: str = Query("", max_length=256),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    dev = db.query(ZDNSDevice).get(device_id)
+    if not dev:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ZDNS 设备不存在")
+    q = db.query(ZDNSRecord).filter(ZDNSRecord.zdns_device_id == device_id)
+    if search:
+        q = q.filter(
+            (ZDNSRecord.name.contains(search)) |
+            (ZDNSRecord.full_domain.contains(search)) |
+            (ZDNSRecord.record_type.contains(search)) |
+            (ZDNSRecord.rdata.contains(search))
+        )
+    items = q.order_by(ZDNSRecord.id).all()
+    headers = ["名称", "完整域名", "记录类型", "TTL", "记录值", "视图", "区", "启用", "策略", "过期时间", "过期方式"]
+    xls_rows = [[
+        r.name, r.full_domain, r.record_type,
+        str(r.ttl) if r.ttl is not None else "",
+        r.rdata, r.view_name, r.zone_name,
+        r.is_enabled, r.strategy, r.expire_time, r.expire_style,
+    ] for r in items]
+    dev_name = dev.name.replace(" ", "_")
+    return export_to_excel(headers, xls_rows, f"zdns_records_{dev_name}.xlsx", sheet_title=f"{dev_name}_DNS记录")
+
+
+@router.get("/{device_id}/domain-map/export")
+def export_domain_map(
+    device_id: int,
+    search: str = Query("", max_length=256),
+    record_type: str = Query("", max_length=10),
+    view_name: str = Query("", max_length=128),
+    is_enabled: str = Query("", max_length=8),
+    ip_status: str = Query("", max_length=8),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    dev = db.query(ZDNSDevice).get(device_id)
+    if not dev:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ZDNS 设备不存在")
+    q = db.query(ZDNSDomainMap).filter(ZDNSDomainMap.zdns_device_id == device_id)
+    if search:
+        q = q.filter(
+            (ZDNSDomainMap.domain_name.contains(search)) |
+            (ZDNSDomainMap.ip_address.contains(search)) |
+            (ZDNSDomainMap.view_name.contains(search)) |
+            (ZDNSDomainMap.zone_name.contains(search))
+        )
+    if record_type:
+        q = q.filter(ZDNSDomainMap.record_type == record_type)
+    if view_name:
+        q = q.filter(ZDNSDomainMap.view_name == view_name)
+    if is_enabled:
+        q = q.filter(ZDNSDomainMap.is_enabled == is_enabled)
+
+    all_rows = q.order_by(ZDNSDomainMap.id).all()
+    all_with_status = _compute_ip_status_batch(db, all_rows)
+    if ip_status:
+        all_with_status = [r for r in all_with_status if r["ip_status"] == ip_status]
+
+    headers = ["域名", "记录类型", "IP地址", "IP分类", "网络类型", "TTL", "视图", "区", "启用", "IP状态"]
+    xls_rows = [[
+        r.get("domain_name", ""), r.get("record_type", ""),
+        r.get("ip_address", ""), r.get("ip_category", ""),
+        r.get("network_type", ""),
+        str(r.get("ttl")) if r.get("ttl") is not None else "",
+        r.get("view_name", ""), r.get("zone_name", ""),
+        r.get("is_enabled", ""), r.get("ip_status", ""),
+    ] for r in all_with_status]
+    dev_name = dev.name.replace(" ", "_")
+    return export_to_excel(headers, xls_rows, f"zdns_domainmap_{dev_name}.xlsx", sheet_title=f"{dev_name}_域名清单")

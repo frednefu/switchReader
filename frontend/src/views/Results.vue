@@ -12,6 +12,9 @@
       <el-form-item>
         <el-button type="primary" @click="fetchData">查询</el-button>
         <el-button @click="filters.ip='';filters.mac='';fetchData()">重置</el-button>
+        <el-button @click="exportExcel" :loading="exporting">
+          <el-icon><Download /></el-icon>导出 Excel
+        </el-button>
       </el-form-item>
     </el-form>
 
@@ -58,6 +61,7 @@ import api from '@/api'
 
 const items = ref([])
 const loading = ref(false)
+const exporting = ref(false)
 const page = ref(1)
 const size = ref(50)
 const total = ref(0)
@@ -80,6 +84,24 @@ async function fetchData() {
     total.value = data.total
   } catch { /* handled */ }
   finally { loading.value = false }
+}
+
+async function exportExcel() {
+  exporting.value = true
+  try {
+    const r = await api.get('/results/export', {
+      params: { ip: filters.ip, mac: filters.mac },
+      responseType: 'blob',
+    })
+    const url = URL.createObjectURL(r.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'scan_results.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+  } finally {
+    exporting.value = false
+  }
 }
 
 onMounted(fetchData)

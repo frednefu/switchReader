@@ -331,6 +331,57 @@ def _do_vcenter_scan(host: str, username: str, password: str, port: int) -> list
         Disconnect(si)
 
 
+def _normalize_mac(mac: str) -> str:
+    """去掉 MAC 地址中的分隔符，统一小写用于比较。"""
+    for sep in (":", "-", "."):
+        mac = mac.replace(sep, "")
+    return mac.lower()
+
+
+def _fill_ips_from_mac(db, vcenter_id: int):
+    """扫描后处理：对 IP 为空的 VM，通过 MAC 从交换机 scan_results 补充 IP。"""
+    from app.models.scan_result import ScanResult
+
+    vms = db.query(VMInventory).filter(
+        VMInventory.vcenter_id == vcenter_id,
+        (VMInventory.ip_address == "") | (VMInventory.ip_address.is_(None)),
+        VMInventory.mac_address != "",
+        VMInventory.mac_address.isnot(None),
+    ).all()
+
+    if not vms:
+        return
+
+    rows = db.query(ScanResult.ip_address, ScanResult.mac_address).filter(
+        ScanResult.ip_address != "",
+        ScanResult.mac_address != "",
+    ).all()
+
+    # 构建归一化 MAC → IP 列表 映射
+    mac_to_ips: dict[str, list[str]] = {}
+    for ip, mac in rows:
+        norm = _normalize_mac(mac)
+        if norm not in mac_to_ips:
+            mac_to_ips[norm] = []
+        if ip not in mac_to_ips[norm]:
+            mac_to_ips[norm].append(ip)
+
+    updated = 0
+    for vm in vms:
+        vm_macs = [m.strip() for m in vm.mac_address.split(",") if m.strip()]
+        found_ips = set()
+        for m in vm_macs:
+            norm = _normalize_mac(m)
+            for ip in mac_to_ips.get(norm, []):
+                found_ips.add(ip)
+        if found_ips:
+            vm.ip_address = ", ".join(sorted(found_ips))
+            updated += 1
+
+    if updated:
+        logger.info("vCenter %s: 通过 MAC 补充了 %s 台 VM 的 IP", vcenter_id, updated)
+
+
 async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = None):
     """异步扫描入口 — 在线程池中运行同步 pyVmomi 调用。"""
     from app.services.history_service import detect_vcenter_changes
@@ -368,6 +419,9 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
             write_db.query(VMInventory).filter(VMInventory.vcenter_id == vcenter_id).delete()
             for r in rows:
                 write_db.add(VMInventory(vcenter_id=vcenter_id, **r))
+
+            # 扫描后处理：通过 MAC 从交换机 scan_results 补充缺失 IP
+            _fill_ips_from_mac(write_db, vcenter_id)
 
             # 构建新数据映射用于 diff
             new_rows = write_db.query(VMInventory).filter(

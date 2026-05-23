@@ -24,7 +24,7 @@
         </div>
       </el-col>
       <el-col :span="6">
-        <div class="stat-card" @click="showIpMacDialog = true">
+        <div class="stat-card" @click="openIpMacDialog('ip')">
           <div class="stat-icon" style="background: linear-gradient(135deg, #10b981, #34d399);">
             <el-icon :size="22"><Connection /></el-icon>
           </div>
@@ -35,7 +35,7 @@
         </div>
       </el-col>
       <el-col :span="6">
-        <div class="stat-card" @click="showIpMacDialog = true">
+        <div class="stat-card" @click="openIpMacDialog('mac')">
           <div class="stat-icon" style="background: linear-gradient(135deg, #f59e0b, #fbbf24);">
             <el-icon :size="22"><Discount /></el-icon>
           </div>
@@ -71,7 +71,7 @@
         </div>
       </el-col>
       <el-col :span="6">
-        <div class="stat-card" @click="go('/vcenters')">
+        <div class="stat-card" @click="openVMDialog">
           <div class="stat-icon" style="background: linear-gradient(135deg, #8b5cf6, #a78bfa);">
             <el-icon :size="22"><Cpu /></el-icon>
           </div>
@@ -100,6 +100,45 @@
           <div class="stat-info">
             <div class="stat-value">{{ stats.zdns.device_count }}</div>
             <div class="stat-title">ZDNS 设备</div>
+          </div>
+        </div>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="16" class="stat-row">
+      <el-col :span="8">
+        <div class="stat-card" @click="openAssetDetail('domains')">
+          <div class="stat-icon" style="background: linear-gradient(135deg, #6366f1, #a78bfa);">
+            <el-icon :size="22"><Link /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.asset.域名总数 }}</div>
+            <div class="stat-title">域名总数</div>
+            <div class="stat-detail">ZDNS {{ stats.asset.zdns域名 }} · F5 {{ stats.asset.f5域名 }}</div>
+          </div>
+        </div>
+      </el-col>
+      <el-col :span="8">
+        <div class="stat-card" @click="openAssetDetail('public_services')">
+          <div class="stat-icon" style="background: linear-gradient(135deg, #10b981, #6ee7b7);">
+            <el-icon :size="22"><Monitor /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.asset.公网服务 }}</div>
+            <div class="stat-title">公网服务</div>
+            <div class="stat-detail">公网IP:端口</div>
+          </div>
+        </div>
+      </el-col>
+      <el-col :span="8">
+        <div class="stat-card" @click="openAssetDetail('internal_services')">
+          <div class="stat-icon" style="background: linear-gradient(135deg, #f59e0b, #fcd34d);">
+            <el-icon :size="22"><Connection /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ stats.asset.内网服务 }}</div>
+            <div class="stat-title">内网服务</div>
+            <div class="stat-detail">内网IP:端口</div>
           </div>
         </div>
       </el-col>
@@ -143,7 +182,7 @@
         <el-card shadow="hover" class="chart-card">
           <template #header>
             <div class="card-header">
-              <strong>地址段利用率</strong>
+              <strong>IP 利用率</strong>
               <span class="card-hint" v-if="subnets.length">{{ subnets.length }} 个地址段 · 点击柱子查看已占用 IP</span>
             </div>
           </template>
@@ -216,13 +255,18 @@
     </el-row>
 
     <!-- ═══════════ 子网已占用 IP 对话框 ═══════════ -->
-    <el-dialog v-model="occupiedDialogVisible" :title="`已占用 IP — ${occupiedData.subnet_name || ''}`" width="750px" @closed="occupiedData = { subnet_cidr: '', subnet_name: '', occupied: [], total: 0 }">
+    <el-dialog v-model="occupiedDialogVisible" :title="`已占用 IP — ${occupiedData.subnet_name || ''}`" width="900px" @closed="Object.assign(occupiedData, { subnet_cidr: '', subnet_name: '', occupied: [], total: 0 })">
+      <div class="dialog-search-bar" v-if="occupiedData.total > 0 || occupiedSearch">
+        <el-input v-model="occupiedSearch" placeholder="搜索 IP、MAC、虚拟机名称、域名..." clearable style="width:380px"
+          @keyup.enter="occupiedPage=1;fetchOccupiedIps(occupiedSubnetId)"
+          @clear="occupiedPage=1;fetchOccupiedIps(occupiedSubnetId)" />
+      </div>
       <div v-if="occupiedData.occupied.length === 0" style="text-align:center;padding:20px;color:var(--color-text-muted);">该子网暂无已占用 IP 数据</div>
       <el-table v-else :data="occupiedData.occupied" stripe size="small" max-height="400">
         <el-table-column prop="ip" label="IP 地址" width="150" />
         <el-table-column prop="mac" label="MAC 地址" width="160" />
-        <el-table-column prop="switch_name" label="交换机" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="vlan" label="VLAN" width="80" />
+        <el-table-column prop="vm_name" label="虚拟机名称" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="domain" label="域名" min-width="200" show-overflow-tooltip />
       </el-table>
       <div class="occupied-pagination" v-if="occupiedData.total > occupiedPageSize">
         <el-pagination
@@ -236,16 +280,78 @@
       </div>
     </el-dialog>
 
-    <!-- ═══════════ IP/MAC 明细对话框 ═══════════ -->
-    <el-dialog v-model="showIpMacDialog" title="IP/MAC 地址明细（来自 scan_results）" width="900px">
-      <el-table :data="ipMacList" v-loading="loadingIpMac" stripe size="small" max-height="400">
-        <el-table-column prop="ip_address" label="IP 地址" width="150" />
-        <el-table-column prop="mac_address" label="MAC 地址" width="160" />
-        <el-table-column prop="vlan_bd" label="VLAN" width="70" />
-        <el-table-column prop="switch_type" label="类型" width="70" />
-        <el-table-column label="交换机" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.switch_name || '' }}</template>
+    <!-- ═══════════ 资产明细对话框（域名 / 公网服务 / 内网服务） ═══════════ -->
+    <el-dialog v-model="showAssetDetailDialog" :title="assetDetailTitle" width="700px" @closed="assetDetailItems=[];assetDetailSearch=''">
+      <div class="dialog-search-bar" v-if="assetDetailItems.length > 0 || assetDetailSearch">
+        <el-input v-model="assetDetailSearch" placeholder="搜索..." clearable style="width:300px"
+          @keyup.enter="fetchAssetDetailItems" @clear="fetchAssetDetailItems" />
+      </div>
+      <div v-if="assetDetailItems.length === 0 && !assetDetailLoading" style="text-align:center;padding:20px;color:var(--color-text-muted);">暂无数据</div>
+      <el-table v-else :data="filteredAssetItems" stripe size="small" max-height="400" v-loading="assetDetailLoading">
+        <template v-if="assetDetailType === 'domains'">
+          <el-table-column prop="domain_name" label="域名" min-width="350" show-overflow-tooltip />
+          <el-table-column label="来源" width="120">
+            <template #default="{ row }">
+              <el-tag v-if="row.source && row.source.includes('ZDNS')" type="primary" size="small">ZDNS</el-tag>
+              <el-tag v-if="row.source && row.source.includes('F5')" type="success" size="small" :style="row.source.includes('ZDNS')?'margin-left:4px':''">F5</el-tag>
+            </template>
+          </el-table-column>
+        </template>
+        <template v-else>
+          <el-table-column prop="ip" label="IP 地址" width="180" />
+          <el-table-column prop="port" label="端口" width="100" />
+        </template>
+      </el-table>
+    </el-dialog>
+
+    <!-- ═══════════ 虚拟机明细对话框 ═══════════ -->
+    <el-dialog v-model="showVMDialog" :title="`虚拟机明细（共 ${vmTotal} 台）`" width="95%" @closed="vmSearch='';vmPage=1">
+      <div class="dialog-search-bar">
+        <el-input v-model="vmSearch" placeholder="搜索名称、IP、MAC、OS、集群、主机、网络、文件夹..." clearable style="width:380px"
+          @keyup.enter="vmPage=1;fetchVMs()" @clear="vmPage=1;fetchVMs()" />
+      </div>
+      <el-table :data="vmList" stripe v-loading="loadingVM" size="small" max-height="500">
+        <el-table-column prop="vm_name" label="虚拟机名称" min-width="180" fixed show-overflow-tooltip />
+        <el-table-column prop="power_state" label="电源" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.power_state==='poweredOn'?'success':'info'" size="small">
+              {{ row.power_state==='poweredOn'?'开机':row.power_state==='poweredOff'?'关机':row.power_state }}
+            </el-tag>
+          </template>
         </el-table-column>
+        <el-table-column prop="ip_address" label="IP 地址" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="mac_address" label="MAC 地址" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="os_name" label="操作系统" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="cpu_count" label="CPU" width="55" />
+        <el-table-column prop="memory_gb" label="内存(GB)" width="80" />
+        <el-table-column prop="datacenter" label="数据中心" min-width="110" show-overflow-tooltip />
+        <el-table-column prop="cluster" label="集群" min-width="110" show-overflow-tooltip />
+        <el-table-column prop="esxi_host" label="ESXi 主机" min-width="130" show-overflow-tooltip />
+        <el-table-column prop="network_name" label="网络" min-width="110" show-overflow-tooltip />
+        <el-table-column prop="vlan_id" label="VLAN" width="70" />
+        <el-table-column prop="resource_pool" label="资源池" min-width="100" show-overflow-tooltip />
+        <el-table-column prop="vm_folder" label="文件夹" min-width="110" show-overflow-tooltip />
+      </el-table>
+      <div class="occupied-pagination" v-if="vmTotal > vmSize">
+        <el-pagination
+          v-model:current-page="vmPage"
+          :page-size="vmSize"
+          :total="vmTotal"
+          layout="total, prev, pager, next"
+          small
+          @current-change="(p) => { vmPage = p; fetchVMs() }"
+        />
+      </div>
+    </el-dialog>
+
+    <!-- ═══════════ IP/MAC 明细对话框 ═══════════ -->
+    <el-dialog v-model="showIpMacDialog" :title="ipMacDialogTitle" width="500px">
+      <div class="dialog-search-bar" v-if="ipMacList.length > 0 || ipMacSearch">
+        <el-input v-model="ipMacSearch" :placeholder="ipMacType==='ip'?'搜索 IP...':'搜索 MAC...'" clearable style="width:280px"
+          @keyup.enter="ipMacPage=1;fetchIpMacList()" @clear="ipMacPage=1;fetchIpMacList()" />
+      </div>
+      <el-table :data="ipMacList" v-loading="loadingIpMac" stripe size="small" max-height="400">
+        <el-table-column prop="value" :label="ipMacType==='ip'?'IP 地址':'MAC 地址'" min-width="300" show-overflow-tooltip />
       </el-table>
       <div class="occupied-pagination" v-if="ipMacTotal > ipMacSize">
         <el-pagination
@@ -275,6 +381,7 @@ const stats = reactive({
   vcenter: { vcenter_count: 0, vm_total: 0, vm_powered_on: 0, vm_powered_off: 0, total_cpu_cores: 0, total_memory_gb: 0, per_vcenter: [] },
   f5: { device_count: 0, vs_count: 0, pool_count: 0, rule_count: 0, app_map_count: 0, pool_member_up: 0, pool_member_down: 0 },
   zdns: { device_count: 0, record_count: 0, domain_map_count: 0, ipv4_count: 0, ipv6_count: 0, internal_count: 0, external_count: 0, record_types: [] },
+  asset: { 域名总数: 0, zdns域名: 0, f5域名: 0, 公网服务: 0, 内网服务: 0 },
   scan_by_source: [],
   last_scan_total: 0, last_scan_success: 0, last_scan_failed: 0,
 })
@@ -304,15 +411,95 @@ const occupiedDialogVisible = ref(false)
 const occupiedSubnetId = ref(null)
 const occupiedPage = ref(1)
 const occupiedPageSize = ref(50)
+const occupiedSearch = ref('')
 const occupiedData = reactive({ subnet_cidr: '', subnet_name: '', occupied: [], total: 0 })
+
+// ── 资产明细对话框 ──
+const showAssetDetailDialog = ref(false)
+const assetDetailType = ref('')
+const assetDetailTitle = ref('')
+const assetDetailItems = ref([])
+const assetDetailSearch = ref('')
+const assetDetailLoading = ref(false)
+
+const filteredAssetItems = computed(() => {
+  if (!assetDetailSearch.value) return assetDetailItems.value
+  const q = assetDetailSearch.value.toLowerCase()
+  return assetDetailItems.value.filter(item => {
+    if (assetDetailType.value === 'domains') {
+      return (item.domain_name || '').toLowerCase().includes(q) || (item.source || '').toLowerCase().includes(q)
+    }
+    return (item.ip || '').toLowerCase().includes(q) || String(item.port || '').includes(q)
+  })
+})
+
+async function openAssetDetail(type) {
+  assetDetailType.value = type
+  assetDetailSearch.value = ''
+  assetDetailItems.value = []
+  const titles = { domains: '域名明细', public_services: '公网服务明细', internal_services: '内网服务明细' }
+  assetDetailTitle.value = titles[type] || ''
+  showAssetDetailDialog.value = true
+  await fetchAssetDetailItems()
+}
+
+async function fetchAssetDetailItems() {
+  assetDetailLoading.value = true
+  try {
+    const { data } = await api.get('/dashboard/asset-details', {
+      params: { type: assetDetailType.value, search: assetDetailSearch.value }
+    })
+    assetDetailItems.value = data.items || []
+  } catch { /* handled */ }
+  finally { assetDetailLoading.value = false }
+}
 
 // ── IP/MAC 明细对话框 ──
 const showIpMacDialog = ref(false)
+const ipMacType = ref('ip')
+const ipMacDialogTitle = computed(() => ipMacType.value === 'ip' ? '唯一 IP 地址明细（去重）' : 'MAC 地址明细（去重）')
 const ipMacList = ref([])
 const ipMacPage = ref(1)
-const ipMacSize = ref(30)
+const ipMacSize = ref(50)
 const ipMacTotal = ref(0)
+const ipMacSearch = ref('')
 const loadingIpMac = ref(false)
+
+function openIpMacDialog(type) {
+  ipMacType.value = type
+  ipMacSearch.value = ''
+  ipMacPage.value = 1
+  showIpMacDialog.value = true
+  fetchIpMacList()
+}
+
+// ── 虚拟机明细对话框 ──
+const showVMDialog = ref(false)
+const vmList = ref([])
+const vmSearch = ref('')
+const vmTotal = ref(0)
+const vmPage = ref(1)
+const vmSize = ref(30)
+const loadingVM = ref(false)
+
+function openVMDialog() {
+  vmSearch.value = ''
+  vmPage.value = 1
+  showVMDialog.value = true
+  fetchVMs()
+}
+
+async function fetchVMs() {
+  loadingVM.value = true
+  try {
+    const { data } = await api.get('/dashboard/vm-details', {
+      params: { page: vmPage.value, size: vmSize.value, search: vmSearch.value }
+    })
+    vmList.value = data.items || []
+    vmTotal.value = data.total || 0
+  } catch { /* handled */ }
+  finally { loadingVM.value = false }
+}
 
 // ── 图表实例 ──
 let vmDonutChart, dnsPieChart, f5DonutChart, scanBarChart, subnetBarChart, vcResourceChart
@@ -355,7 +542,7 @@ async function fetchAvailableIps() {
 async function fetchOccupiedIps(subnetId) {
   try {
     const { data } = await api.get('/dashboard/subnet-occupied-ips', {
-      params: { subnet_id: subnetId, page: occupiedPage.value, size: occupiedPageSize.value }
+      params: { subnet_id: subnetId, page: occupiedPage.value, size: occupiedPageSize.value, search: occupiedSearch.value }
     })
     Object.assign(occupiedData, data)
   } catch { /* handled */ }
@@ -364,7 +551,9 @@ async function fetchOccupiedIps(subnetId) {
 async function fetchIpMacList() {
   loadingIpMac.value = true
   try {
-    const { data } = await api.get('/results', { params: { page: ipMacPage.value, size: ipMacSize.value } })
+    const { data } = await api.get('/dashboard/ip-mac-list', {
+      params: { type: ipMacType.value, page: ipMacPage.value, size: ipMacSize.value, search: ipMacSearch.value }
+    })
     ipMacList.value = data.items || []
     ipMacTotal.value = data.total || 0
   } catch { /* handled */ }
@@ -479,18 +668,20 @@ function renderSubnetBar() {
   if (!subnetBarRef.value || subnets.value.length === 0) return
   if (!subnetBarChart) {
     subnetBarChart = echarts.init(subnetBarRef.value)
-    subnetBarChart.on('click', (params) => {
-      if (params.componentType === 'series') {
-        const item = subnets.value[params.dataIndex]
-        if (item) {
-          occupiedSubnetId.value = item.subnet_id
-          occupiedPage.value = 1
-          fetchOccupiedIps(item.subnet_id)
-          occupiedDialogVisible.value = true
-        }
-      }
-    })
   }
+  subnetBarChart.off('click')
+  subnetBarChart.on('click', (params) => {
+    if (params.componentType === 'series') {
+      const item = subnets.value[params.dataIndex]
+      if (item) {
+        occupiedSubnetId.value = item.subnet_id
+        occupiedPage.value = 1
+        occupiedSearch.value = ''
+        fetchOccupiedIps(item.subnet_id)
+        occupiedDialogVisible.value = true
+      }
+    }
+  })
 
   const data = subnets.value
   const names = data.map(d => d.name + '\n' + d.subnet_cidr)
@@ -545,12 +736,6 @@ function disposeCharts() {
   subnetBarChart?.dispose()
   vcResourceChart?.dispose()
 }
-
-// ── 监听 IP/MAC 对话框打开 ──
-import { watch } from 'vue'
-watch(showIpMacDialog, (v) => {
-  if (v) { ipMacPage.value = 1; fetchIpMacList() }
-})
 
 onMounted(() => {
   fetchStats()
@@ -615,4 +800,9 @@ onBeforeUnmount(() => {
 
 /* ── 对话框分页 ── */
 .occupied-pagination { margin-top: 12px; display: flex; justify-content: flex-end; }
+.dialog-search-bar { margin-bottom: 16px; }
+
+/* ── 资产卡片补充样式 ── */
+.stat-detail { font-size: 11px; color: var(--color-text-muted); margin-top: 2px; }
+.no-hover:hover { transform: none; box-shadow: none; }
 </style>

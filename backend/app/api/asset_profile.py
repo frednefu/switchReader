@@ -6,6 +6,7 @@ from app.database import get_db
 from app.schemas.asset_profile import AssetProfileResponse, AssetProfileStats, AssetProfileRow
 from app.services.asset_profile_service import build_asset_profile, compute_stats, filter_sort_paginate, get_network_names, get_source_names
 from app.api.deps import get_current_user
+from app.utils.export import export_to_excel
 
 router = APIRouter(prefix="/asset-profile", tags=["资产画像"])
 
@@ -52,3 +53,22 @@ def get_asset_profile(
         network_names=network_names,
         source_names=source_names,
     )
+
+
+@router.get("/export")
+def export_asset_profile(
+    search: str = Query("", description="全局搜索（匹配所有字段）"),
+    status: str = Query("", description="状态过滤：up/down/user-down"),
+    network: str = Query("", description="网络名称过滤（vCenter 网络）"),
+    source: str = Query("", description="来源过滤（精确匹配）"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    rows = _get_cached_profile(db)
+    filtered = filter_sort_paginate(
+        rows, search=search, status=status, network=network, source=source,
+        page=1, size=100000,
+    )
+    headers = ["域名", "来源", "公网IP", "端口", "内网服务IP", "内网端口", "状态", "虚拟机名称", "IP地址", "MAC地址", "网络", "VLAN", "文件夹"]
+    xls_rows = [[r.get(h, "") for h in headers] for r in filtered["rows"]]
+    return export_to_excel(headers, xls_rows, "asset_profile.xlsx", sheet_title="资产画像")

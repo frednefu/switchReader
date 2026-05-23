@@ -43,3 +43,25 @@ export function getVMInventory(params) {
 export function getVCenterVMs(id, params) {
   return api.get(`/vcenters/${id}/vms`, { params }).then((r) => r.data)
 }
+
+export function exportVMInventory(params) {
+  return api.get('/vcenters/vms/export', { params, responseType: 'blob' }).then((r) => {
+    const url = URL.createObjectURL(r.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'vm_inventory.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+  })
+}
+
+export function exportVCenterVMs(id, params) {
+  return api.get(`/vcenters/${id}/vms/export`, { params, responseType: 'blob' }).then((r) => {
+    const url = URL.createObjectURL(r.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `vm_${id}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+  })
+}
