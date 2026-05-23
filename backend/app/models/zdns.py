@@ -23,6 +23,12 @@ class ZDNSDevice(Base):
     last_zone_count = Column(Integer, nullable=False, default=0)
     last_scan_error = Column(Text, nullable=True)
 
+    ip_scan_interval = Column(Integer, nullable=False, default=86400)
+    last_ip_scan_status = Column(String(16), nullable=True)
+    last_ip_scan_time = Column(DateTime, nullable=True)
+    last_ip_scan_duration = Column(Float, nullable=True)
+    last_ip_scan_error = Column(Text, nullable=True)
+
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -70,6 +76,7 @@ class ZDNSDomainMap(Base):
     view_name = Column(String(128), default="")
     zone_name = Column(String(255), default="")
     is_enabled = Column(String(8), default="")
+    ip_status = Column(String(16), default="")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     device = relationship("ZDNSDevice", back_populates="domain_maps")

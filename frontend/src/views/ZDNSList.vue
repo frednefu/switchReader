@@ -74,6 +74,9 @@
                   <el-dropdown-item command="scan">
                     <el-icon><Refresh /></el-icon>扫描
                   </el-dropdown-item>
+                  <el-dropdown-item command="ipscan">
+                    <el-icon><Connection /></el-icon>IP扫描
+                  </el-dropdown-item>
                   <el-dropdown-item command="edit">
                     <el-icon><Edit /></el-icon>编辑
                   </el-dropdown-item>
@@ -101,7 +104,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useAuthStore } from '@/store/auth'
-import { getZDNSDevices, deleteZDNSDevice, triggerZDNSScan, scanAllZDNSDevices, deleteAllZDNSDevices } from '@/api/zdns'
+import { getZDNSDevices, deleteZDNSDevice, triggerZDNSScan, triggerZDNSIPScan, scanAllZDNSDevices, deleteAllZDNSDevices } from '@/api/zdns'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ZDNSFormDialog from '@/components/ZDNSFormDialog.vue'
 
@@ -144,6 +147,15 @@ async function handleScan(row) {
   } catch { /* cancelled */ }
 }
 
+async function handleIPScan(row) {
+  try {
+    await ElMessageBox.confirm(`确认对 ZDNS ${row.name} 执行 IP 可达性扫描？`, '确认 IP 扫描')
+    await triggerZDNSIPScan(row.id)
+    ElMessage.success('IP 扫描已触发')
+    fetchList()
+  } catch { /* cancelled */ }
+}
+
 async function handleDelete(row) {
   try {
     await ElMessageBox.confirm(`确认删除 ZDNS ${row.name}？此操作不可恢复。`, '确认删除', { type: 'warning' })
@@ -155,6 +167,7 @@ async function handleDelete(row) {
 
 function handleCommand(cmd, row) {
   if (cmd === 'scan') handleScan(row)
+  else if (cmd === 'ipscan') handleIPScan(row)
   else if (cmd === 'edit') openEdit(row)
   else if (cmd === 'delete') handleDelete(row)
 }

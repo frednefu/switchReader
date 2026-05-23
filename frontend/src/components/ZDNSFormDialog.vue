@@ -26,6 +26,10 @@
         <el-input-number v-model="form.scan_interval" :min="0" :max="86400" :step="60" />
         <span class="form-hint">秒，0 = 仅手动扫描</span>
       </el-form-item>
+      <el-form-item label="IP扫描间隔">
+        <el-input-number v-model="form.ip_scan_interval" :min="0" :max="86400" :step="60" />
+        <span class="form-hint">秒，0 = 仅手动扫描</span>
+      </el-form-item>
     </el-form>
 
     <template #footer>
@@ -72,6 +76,7 @@ const form = reactive({
   password: '',
   port: 20120,
   scan_interval: 86400,
+  ip_scan_interval: 86400,
 })
 
 const rules = {
@@ -96,6 +101,7 @@ function initForm() {
     form.password = ''
     form.port = props.editData.port || 20120
     form.scan_interval = props.editData.scan_interval ?? 86400
+    form.ip_scan_interval = props.editData.ip_scan_interval ?? 86400
   } else {
     isEdit.value = false
     editId.value = null
@@ -105,6 +111,7 @@ function initForm() {
     form.password = ''
     form.port = 20120
     form.scan_interval = 86400
+    form.ip_scan_interval = 86400
   }
 }
 
@@ -141,6 +148,7 @@ async function handleSubmit() {
       if (form.password) payload.password = form.password
       if (form.port !== props.editData.port) payload.port = form.port
       if (form.scan_interval !== props.editData.scan_interval) payload.scan_interval = form.scan_interval
+      if (form.ip_scan_interval !== props.editData.ip_scan_interval) payload.ip_scan_interval = form.ip_scan_interval
       await updateZDNSDevice(editId.value, payload)
       ElMessage.success('ZDNS 设备已更新')
     } else {

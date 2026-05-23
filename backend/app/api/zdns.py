@@ -13,7 +13,7 @@ from app.schemas.zdns import (
 from app.schemas.scan import PaginatedResponse
 from app.api.deps import get_current_user, require_admin
 from app.services.zdns_scanner_service import trigger_zdns_scan, test_zdns_connection
-from app.services.scheduler_service import refresh_zdns_job
+from app.services.scheduler_service import refresh_zdns_job, refresh_zdns_ip_job
 
 router = APIRouter(prefix="/zdns", tags=["ZDNS"])
 
@@ -59,6 +59,7 @@ def delete_all(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="没有可删除的 ZDNS 设备")
     for dev in db.query(ZDNSDevice).all():
         refresh_zdns_job(dev.id, 0)
+        refresh_zdns_ip_job(dev.id, 0)
     db.query(ZDNSDevice).delete()
     db.commit()
     return {"message": f"已删除 {count} 个 ZDNS 设备及关联数据", "deleted": count}
@@ -106,8 +107,11 @@ def create_device(
     db.add(dev)
     db.commit()
     db.refresh(dev)
-    if dev.is_active and dev.scan_interval > 0:
-        refresh_zdns_job(dev.id, dev.scan_interval)
+    if dev.is_active:
+        if dev.scan_interval > 0:
+            refresh_zdns_job(dev.id, dev.scan_interval)
+        if dev.ip_scan_interval > 0:
+            refresh_zdns_ip_job(dev.id, dev.ip_scan_interval)
     return ZDNSDeviceOut.model_validate(dev)
 
 
@@ -142,6 +146,7 @@ def update_device(
     db.commit()
     db.refresh(dev)
     refresh_zdns_job(dev.id, dev.scan_interval if dev.is_active else 0)
+    refresh_zdns_ip_job(dev.id, dev.ip_scan_interval if dev.is_active else 0)
     return ZDNSDeviceOut.model_validate(dev)
 
 
@@ -157,6 +162,7 @@ def delete_device(
     if not dev:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ZDNS 设备不存在")
     refresh_zdns_job(device_id, 0)
+    refresh_zdns_ip_job(device_id, 0)
     db.delete(dev)
     db.commit()
     return {"message": "ZDNS 设备已删除"}
@@ -179,6 +185,25 @@ async def trigger_scan(
         db.commit()
     scan_log_id = await trigger_zdns_scan(dev)
     return {"message": "扫描已触发", "scan_log_id": scan_log_id}
+
+
+@router.post("/{device_id}/ip-scan")
+async def trigger_ip_scan(
+    device_id: int,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+):
+    """触发 ZDNS 域名映射 IP 的可达性扫描（ping 探测）。"""
+    from app.services.zdns_ip_scanner_service import trigger_zdns_ip_scan
+    dev = db.query(ZDNSDevice).get(device_id)
+    if not dev:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ZDNS 设备不存在")
+    if dev.last_ip_scan_status == "running":
+        dev.last_ip_scan_status = None
+        dev.last_ip_scan_error = None
+        db.commit()
+    scan_log_id = await trigger_zdns_ip_scan(dev)
+    return {"message": "IP 扫描已触发", "scan_log_id": scan_log_id}
 
 
 # ─── DNS 记录清单 ───
@@ -214,6 +239,20 @@ def list_records(
 
 # ─── 域名映射清单（核心交付物） ───
 
+# IP 状态显示的标签映射
+def _label_ip_status(status: str) -> str:
+    if not status:
+        return "待定"
+    s = status.lower()
+    if s == "online" or s == "up":
+        return "在线"
+    if s == "offline" or s == "down":
+        return "离线"
+    if s.startswith("user") or s == "disabled":
+        return "禁用"
+    return "待定"
+
+
 @router.get("/{device_id}/domain-map")
 def list_domain_map(
     device_id: int,
@@ -223,6 +262,9 @@ def list_domain_map(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    from app.models.scan_result import ScanResult
+    from app.models.f5 import F5PoolMember, F5ApplicationMap
+
     dev = db.query(ZDNSDevice).get(device_id)
     if not dev:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ZDNS 设备不存在")
@@ -237,7 +279,53 @@ def list_domain_map(
     total = q.count()
     pages = ceil(total / size) if total > 0 else 0
     items = q.order_by(ZDNSDomainMap.id).offset((page - 1) * size).limit(size).all()
+
+    # 批量计算当前页 IP 的显示状态
+    page_ips = list(set(r.ip_address for r in items if r.ip_address))
+    switch_ips: set[str] = set()
+    f5_states: dict[str, str] = {}
+    if page_ips:
+        # 交换机 scan_results 中存在的 IP → 在线
+        sr_rows = db.query(ScanResult.ip_address).filter(
+            ScanResult.ip_address.in_(page_ips)
+        ).distinct().all()
+        switch_ips = {r[0] for r in sr_rows}
+        # F5 Pool Members 中的 IP 状态
+        pm_rows = db.query(F5PoolMember.member_ip, F5PoolMember.member_state).filter(
+            F5PoolMember.member_ip.in_(page_ips),
+            F5PoolMember.member_state != "",
+        ).distinct().all()
+        for ip, state in pm_rows:
+            if ip not in f5_states:
+                f5_states[ip] = state
+        # F5 Application Map 中的 IP 状态（Pool Member 优先）
+        am_rows = db.query(F5ApplicationMap.member_ip, F5ApplicationMap.member_state).filter(
+            F5ApplicationMap.member_ip.in_(page_ips),
+            F5ApplicationMap.member_state != "",
+        ).distinct().all()
+        for ip, state in am_rows:
+            if ip not in f5_states:
+                f5_states[ip] = state
+
+    # 为每行计算 ip_status 显示值
+    results = []
+    for r in items:
+        d = ZDNSDomainMapOut.model_validate(r)
+        ip = r.ip_address
+        if not ip:
+            d.ip_status = ""
+        elif ip in switch_ips:
+            d.ip_status = "在线"
+        elif ip in f5_states:
+            d.ip_status = _label_ip_status(f5_states[ip])
+        elif r.ip_status == "online":
+            d.ip_status = "在线"
+        elif r.ip_status == "offline":
+            d.ip_status = "离线"
+        else:
+            d.ip_status = "待定"
+        results.append(d)
+
     return PaginatedResponse(
-        items=[ZDNSDomainMapOut.model_validate(r) for r in items],
-        total=total, page=page, size=size, pages=pages,
+        items=results, total=total, page=page, size=size, pages=pages,
     )

@@ -16,6 +16,7 @@ from app.services.scanner_service import _run_scan_async
 from app.services.vcenter_scanner_service import _run_vcenter_scan_async
 from app.services.f5_scanner_service import _run_f5_scan_async
 from app.services.zdns_scanner_service import _run_zdns_scan_async
+from app.services.zdns_ip_scanner_service import _run_zdns_ip_scan_async
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,9 @@ def start_scheduler():
         zdns_devices = db.query(ZDNSDevice).filter(ZDNSDevice.is_active == True, ZDNSDevice.scan_interval > 0).all()
         for dev in zdns_devices:
             _add_zdns_job(dev.id, dev.scan_interval)
+        zdns_ip_devices = db.query(ZDNSDevice).filter(ZDNSDevice.is_active == True, ZDNSDevice.ip_scan_interval > 0).all()
+        for dev in zdns_ip_devices:
+            _add_zdns_ip_job(dev.id, dev.ip_scan_interval)
     finally:
         db.close()
 
@@ -245,6 +249,44 @@ def _add_zdns_job(zdns_device_id: int, scan_interval: int):
         _zdns_scan_job,
         trigger=IntervalTrigger(seconds=scan_interval),
         id=f"zdns_{zdns_device_id}",
+        args=[zdns_device_id],
+        replace_existing=True,
+        misfire_grace_time=60,
+    )
+
+
+def _zdns_ip_scan_job(zdns_device_id: int):
+    """单个 ZDNS 设备 IP 可达性扫描 job（在独立线程中运行）。"""
+    db = SessionLocal()
+    try:
+        dev = db.query(ZDNSDevice).get(zdns_device_id)
+        if not dev or not dev.is_active or dev.last_ip_scan_status == "running":
+            return
+
+        scan_log_id = _create_scan_log(db, "zdns_ip", zdns_device_id, dev.name)
+
+        asyncio.run(_run_zdns_ip_scan_async(zdns_device_id, scan_log_id))
+    except Exception:
+        logger.exception("ZDNS IP 扫描失败 zdns_device_id=%s", zdns_device_id)
+    finally:
+        db.close()
+
+
+def refresh_zdns_ip_job(zdns_device_id: int, ip_scan_interval: int):
+    """更新或移除单个 ZDNS 设备的 IP 扫描调度任务。"""
+    job_id = f"zdns_ip_{zdns_device_id}"
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+    if ip_scan_interval > 0 and scheduler.running:
+        _add_zdns_ip_job(zdns_device_id, ip_scan_interval)
+
+
+def _add_zdns_ip_job(zdns_device_id: int, ip_scan_interval: int):
+    """添加单个 ZDNS 设备的 IP 扫描调度任务。"""
+    scheduler.add_job(
+        _zdns_ip_scan_job,
+        trigger=IntervalTrigger(seconds=ip_scan_interval),
+        id=f"zdns_ip_{zdns_device_id}",
         args=[zdns_device_id],
         replace_existing=True,
         misfire_grace_time=60,

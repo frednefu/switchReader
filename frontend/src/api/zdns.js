@@ -28,6 +28,10 @@ export function testZDNSConnection(data) {
   return api.post('/zdns/test', data).then((r) => r.data)
 }
 
+export function triggerZDNSIPScan(id) {
+  return api.post(`/zdns/${id}/ip-scan`).then((r) => r.data)
+}
+
 export function scanAllZDNSDevices() {
   return api.post('/zdns/scan-all').then((r) => r.data)
 }

@@ -81,6 +81,12 @@
                 </el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="IP 状态" width="90">
+              <template #default="{ row }">
+                <span v-if="row.ip_status" class="status-badge" :class="ipStatusClass(row.ip_status)">{{ row.ip_status }}</span>
+                <span v-else style="color:#c0c4cc;">待定</span>
+              </template>
+            </el-table-column>
           </el-table>
           <div class="pagination-wrap" v-if="totalMap > 0">
             <el-pagination
@@ -177,6 +183,13 @@ async function fetchRecords() {
   } finally { loadingRec.value = false }
 }
 
+function ipStatusClass(status) {
+  if (status === '在线') return 'dot-up'
+  if (status === '离线') return 'dot-down'
+  if (status === '禁用') return 'dot-user'
+  return 'dot-unknown'
+}
+
 function onTabClick(tab) {
   const name = tab.props?.name || tab.paneName?.value
   if (name === 'domainmap') { if (domainMap.value.length === 0) fetchDomainMap() }
@@ -223,5 +236,29 @@ onMounted(() => { fetchDevice(); fetchDomainMap() })
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+/* ── 状态指示器 ── */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.dot-up {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+}
+.dot-down {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+.dot-user {
+  color: #909399;
+  background: rgba(144, 147, 153, 0.08);
+}
+.dot-unknown {
+  color: #c0c4cc;
 }
 </style>

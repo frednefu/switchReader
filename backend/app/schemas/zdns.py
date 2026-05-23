@@ -12,6 +12,7 @@ class ZDNSDeviceCreate(BaseModel):
     password: str
     port: int = 20120
     scan_interval: int = 86400
+    ip_scan_interval: int = 86400
 
 
 class ZDNSDeviceUpdate(BaseModel):
@@ -20,6 +21,7 @@ class ZDNSDeviceUpdate(BaseModel):
     password: Optional[str] = None
     port: Optional[int] = None
     scan_interval: Optional[int] = None
+    ip_scan_interval: Optional[int] = None
     is_active: Optional[bool] = None
 
 
@@ -30,6 +32,7 @@ class ZDNSDeviceOut(BaseModel):
     username: str
     port: int
     scan_interval: int
+    ip_scan_interval: int = 86400
     is_active: bool
     last_scan_status: Optional[str] = None
     last_scan_time: Optional[datetime] = None
@@ -37,6 +40,10 @@ class ZDNSDeviceOut(BaseModel):
     last_record_count: int = 0
     last_zone_count: int = 0
     last_scan_error: Optional[str] = None
+    last_ip_scan_status: Optional[str] = None
+    last_ip_scan_time: Optional[datetime] = None
+    last_ip_scan_duration: Optional[float] = None
+    last_ip_scan_error: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -93,6 +100,7 @@ class ZDNSDomainMapOut(BaseModel):
     view_name: str = ""
     zone_name: str = ""
     is_enabled: str = ""
+    ip_status: str = ""
     created_at: datetime
 
     class Config:
