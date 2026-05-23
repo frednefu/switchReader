@@ -300,45 +300,24 @@ onMounted(fetchData)
 .status-dot {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 10px;
-}
-.status-dot::before {
-  content: '';
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
 }
 .dot-up {
   color: #22c55e;
   background: rgba(34, 197, 94, 0.08);
 }
-.dot-up::before {
-  background: #22c55e;
-}
 .dot-down {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.08);
-}
-.dot-down::before {
-  background: #ef4444;
 }
 .dot-user {
   color: #909399;
   background: rgba(144, 147, 153, 0.08);
 }
-.dot-user::before {
-  background: #909399;
-}
 .dot-unknown {
   color: #c0c4cc;
-}
-.dot-unknown::before {
-  background: #c0c4cc;
 }
 .status-na {
   color: var(--color-text-muted);

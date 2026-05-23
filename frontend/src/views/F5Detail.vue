@@ -68,10 +68,7 @@
             <el-table-column prop="member_port" label="成员端口" width="80" />
             <el-table-column label="成员状态" width="90">
               <template #default="{ row }">
-                <el-tag v-if="row.member_state === 'up'" type="success" size="small">UP</el-tag>
-                <el-tag v-else-if="row.member_state === 'down'" type="danger" size="small">DOWN</el-tag>
-                <el-tag v-else-if="row.member_state === 'disabled'" type="info" size="small">禁用</el-tag>
-                <span v-else-if="row.member_state">{{ row.member_state }}</span>
+                <span v-if="row.member_state" class="status-badge" :class="statusClass(row.member_state)">{{ statusLabel(row.member_state) }}</span>
                 <span v-else style="color:#c0c4cc;">-</span>
               </template>
             </el-table-column>
@@ -129,10 +126,8 @@
             <el-table-column prop="member_port" label="端口" width="70" />
             <el-table-column label="状态" width="90">
               <template #default="{ row }">
-                <el-tag v-if="row.member_state === 'up'" type="success" size="small">UP</el-tag>
-                <el-tag v-else-if="row.member_state === 'down'" type="danger" size="small">DOWN</el-tag>
-                <el-tag v-else-if="row.member_state === 'disabled'" type="info" size="small">禁用</el-tag>
-                <span v-else>{{ row.member_state }}</span>
+                <span v-if="row.member_state" class="status-badge" :class="statusClass(row.member_state)">{{ statusLabel(row.member_state) }}</span>
+                <span v-else style="color:#c0c4cc;">-</span>
               </template>
             </el-table-column>
           </el-table>
@@ -266,6 +261,22 @@ function onTabClick(tab) {
   else if (name === 'rules') fetchRules()
 }
 
+function statusClass(state) {
+  const s = (state || '').toLowerCase()
+  if (s === 'up') return 'dot-up'
+  if (s === 'down') return 'dot-down'
+  if (s.startsWith('user')) return 'dot-user'
+  return 'dot-unknown'
+}
+
+function statusLabel(state) {
+  const s = (state || '').toLowerCase()
+  if (s === 'up') return '在线'
+  if (s === 'down') return '离线'
+  if (s === 'user-down') return '禁用'
+  return state || '-'
+}
+
 function formatRules(rulesStr) {
   try {
     const arr = JSON.parse(rulesStr)
@@ -314,6 +325,30 @@ onMounted(() => { fetchDevice(); fetchAppMap() })
   justify-content: flex-end;
   margin-top: 16px;
 }
+/* ── 状态指示器 ── */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.dot-up {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+}
+.dot-down {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
+}
+.dot-user {
+  color: #909399;
+  background: rgba(144, 147, 153, 0.08);
+}
+.dot-unknown {
+  color: #c0c4cc;
+}
+
 .rule-content {
   max-height: 400px;
   overflow: auto;
