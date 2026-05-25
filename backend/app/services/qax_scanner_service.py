@@ -125,6 +125,35 @@ def _safe_list(data: dict, key: str = "list") -> list:
     return []
 
 
+def _update_scan_log(scan_log_id: int, success: bool, server_count: int, error_msg: str | None = None):
+    """更新扫描日志为最终状态。"""
+    from app.models.scan_log import ScanLog, ScanStatus
+
+    try:
+        _db = SessionLocal()
+        try:
+            log = _db.query(ScanLog).get(scan_log_id)
+            if log:
+                log.status = ScanStatus.success if success else ScanStatus.failed
+                log.hosts_found = server_count
+                log.error_message = error_msg
+                log.completed_at = datetime.now()
+                if log.started_at:
+                    log.duration_seconds = round((datetime.now() - log.started_at).total_seconds(), 1)
+                _db.commit()
+        finally:
+            _db.close()
+    except Exception:
+        logger.exception("更新椒图扫描日志失败 scan_log_id=%s", scan_log_id)
+
+
+def _update_scan_log_failed(scan_log_id: int | None, server_count: int, error_msg: str):
+    """提前终止时更新扫描日志为失败。"""
+    if not scan_log_id:
+        return
+    _update_scan_log(scan_log_id, False, server_count, error_msg)
+
+
 async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
     """异步扫描椒图设备，采集服务器清单及端口/进程/软件详情并写入数据库。"""
     from app.models.scan_log import ScanLog, ScanStatus
@@ -134,9 +163,12 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
     db = SessionLocal()
     device = None
     server_count = 0
+    scan_success = False
+    error_msg = None
     try:
         device = db.query(QianXinDevice).get(device_id)
         if not device or not device.enabled:
+            _update_scan_log_failed(scan_log_id, 0, "设备不存在或已禁用")
             return
 
         device.last_scan_status = "running"
@@ -251,6 +283,7 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
 
             write_db.commit()
             server_count = len(servers)
+            scan_success = True
         except Exception:
             write_db.rollback()
             raise
@@ -272,35 +305,23 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
         logger.info("椒图 %s 扫描完成，服务器: %s，耗时 %ss", device.host, server_count, duration)
     except Exception as e:
         duration = round((datetime.now() - start_time).total_seconds(), 1)
+        error_msg = str(e)
         logger.exception("椒图 %s 扫描失败", device.host if device else device_id)
         try:
             db = SessionLocal()
             db_device = db.query(QianXinDevice).get(device_id)
             if db_device:
                 db_device.last_scan_status = "failed"
-                db_device.last_scan_error = str(e)
+                db_device.last_scan_error = error_msg
                 db_device.last_scan_duration = duration
                 db.commit()
             db.close()
-        except Exception:
-            pass
+        except Exception as inner_e:
+            logger.exception("更新椒图设备失败状态出错 device_id=%s", device_id)
 
     # 更新扫描日志
     if scan_log_id:
-        _db = SessionLocal()
-        try:
-            log = _db.query(ScanLog).get(scan_log_id)
-            if log:
-                log.status = ScanStatus.success
-                log.hosts_found = server_count
-                log.completed_at = datetime.now()
-                if log.started_at:
-                    log.duration_seconds = round((datetime.now() - log.started_at).total_seconds(), 1)
-                _db.commit()
-        except Exception:
-            pass
-        finally:
-            _db.close()
+        _update_scan_log(scan_log_id, scan_success, server_count, error_msg)
 
 
 async def trigger_qax_scan(device: QianXinDevice, triggered_by: str = "manual") -> int:
