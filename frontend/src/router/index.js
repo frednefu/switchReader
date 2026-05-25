@@ -68,6 +68,18 @@ const routes = [
         meta: { title: 'ZDNS 详情' },
       },
       {
+        path: 'qax',
+        name: 'QAXDevices',
+        component: () => import('@/views/QAXList.vue'),
+        meta: { title: '椒图管理' },
+      },
+      {
+        path: 'qax/:id',
+        name: 'QAXDetail',
+        component: () => import('@/views/QAXDetail.vue'),
+        meta: { title: '椒图详情' },
+      },
+      {
         path: 'results',
         name: 'Results',
         component: () => import('@/views/Results.vue'),

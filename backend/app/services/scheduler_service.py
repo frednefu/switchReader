@@ -12,11 +12,13 @@ from app.models.scan_log import ScanLog, ScanStatus, TriggerType
 from app.models.vcenter import VCenter
 from app.models.f5 import F5Device
 from app.models.zdns import ZDNSDevice
+from app.models.qax import QianXinDevice
 from app.services.scanner_service import _run_scan_async
 from app.services.vcenter_scanner_service import _run_vcenter_scan_async
 from app.services.f5_scanner_service import _run_f5_scan_async
 from app.services.zdns_scanner_service import _run_zdns_scan_async
 from app.services.zdns_ip_scanner_service import _run_zdns_ip_scan_async
+from app.services.qax_scanner_service import _run_qax_scan_async
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +123,9 @@ def start_scheduler():
         zdns_ip_devices = db.query(ZDNSDevice).filter(ZDNSDevice.is_active == True, ZDNSDevice.ip_scan_interval > 0).all()
         for dev in zdns_ip_devices:
             _add_zdns_ip_job(dev.id, dev.ip_scan_interval)
+        qax_devices = db.query(QianXinDevice).filter(QianXinDevice.enabled == True, QianXinDevice.scan_interval > 0).all()
+        for dev in qax_devices:
+            _add_qax_job(dev.id, dev.scan_interval)
     finally:
         db.close()
 
@@ -288,6 +293,44 @@ def _add_zdns_ip_job(zdns_device_id: int, ip_scan_interval: int):
         trigger=IntervalTrigger(seconds=ip_scan_interval),
         id=f"zdns_ip_{zdns_device_id}",
         args=[zdns_device_id],
+        replace_existing=True,
+        misfire_grace_time=60,
+    )
+
+
+def _qax_scan_job(device_id: int):
+    """单个椒图设备扫描 job（在独立线程中运行）。"""
+    db = SessionLocal()
+    try:
+        dev = db.query(QianXinDevice).get(device_id)
+        if not dev or not dev.enabled or dev.last_scan_status == "running":
+            return
+
+        scan_log_id = _create_scan_log(db, "qax", device_id, dev.name)
+
+        asyncio.run(_run_qax_scan_async(device_id, scan_log_id))
+    except Exception:
+        logger.exception("椒图定时扫描失败 device_id=%s", device_id)
+    finally:
+        db.close()
+
+
+def refresh_qax_job(device_id: int, scan_interval: int):
+    """更新或移除单个椒图设备的调度任务。"""
+    job_id = f"qax_{device_id}"
+    if scheduler.get_job(job_id):
+        scheduler.remove_job(job_id)
+    if scan_interval > 0 and scheduler.running:
+        _add_qax_job(device_id, scan_interval)
+
+
+def _add_qax_job(device_id: int, scan_interval: int):
+    """添加单个椒图设备的定时扫描任务。"""
+    scheduler.add_job(
+        _qax_scan_job,
+        trigger=IntervalTrigger(seconds=scan_interval),
+        id=f"qax_{device_id}",
+        args=[device_id],
         replace_existing=True,
         misfire_grace_time=60,
     )

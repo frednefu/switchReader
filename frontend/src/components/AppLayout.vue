@@ -50,6 +50,10 @@
           <el-icon><Link /></el-icon>
           <span>ZDNS 管理</span>
         </el-menu-item>
+        <el-menu-item index="/qax">
+          <el-icon><Monitor /></el-icon>
+          <span>椒图管理</span>
+        </el-menu-item>
         <el-menu-item index="/results">
           <el-icon><List /></el-icon>
           <span>扫描结果</span>
@@ -160,6 +164,7 @@ const pageTitle = computed(() => {
     '/vcenters': 'vCenter 管理',
     '/f5': 'F5 管理',
     '/zdns': 'ZDNS 管理',
+    '/qax': '椒图管理',
     '/results': '扫描结果',
     '/routes': '路由表',
     '/subnets': '地址段管理',
