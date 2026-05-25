@@ -7,6 +7,8 @@ from datetime import datetime
 from app.database import SessionLocal
 from app.models.vcenter import VCenter
 from app.models.vm_inventory import VMInventory
+from app.models.esxi_host import EsxiHost
+from app.models.datastore import Datastore
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +231,112 @@ def _get_vm_nic_info(vm, dvpg_map, standard_pg_vlan_map):
     return ", ".join(mac_list), ", ".join(network_list), ", ".join(vlan_list)
 
 
+def _collect_vm_storage(vm):
+    """采集 VM 存储使用情况（置备空间、已用空间），单位 GB。"""
+    provisioned = None
+    used = None
+    try:
+        storage = vm.summary.storage
+        if storage:
+            if storage.committed is not None:
+                provisioned = round(storage.committed / (1024 ** 3), 2)
+            if storage.uncommitted is not None:
+                uncommitted = round(storage.uncommitted / (1024 ** 3), 2)
+            if provisioned is not None and storage.uncommitted is not None:
+                used = round(provisioned - round(storage.uncommitted / (1024 ** 3), 2), 2)
+    except Exception:
+        pass
+    return provisioned, used
+
+
+def _collect_esxi_hosts(content):
+    """采集所有 ESXi 主机信息。"""
+    hosts = []
+    try:
+        container = content.viewManager.CreateContainerView(
+            content.rootFolder, [vim.HostSystem], True
+        )
+        for host in container.view:
+            try:
+                summary = host.summary
+                hardware = summary.hardware if summary else None
+                config = host.config
+
+                host_name = host.name or ""
+                # 管理 IP
+                ip_addr = ""
+                try:
+                    if config and config.network and config.network.vnic:
+                        for vnic in config.network.vnic:
+                            if vnic.spec and vnic.spec.ip and vnic.spec.ip.ipAddress:
+                                ip_addr = vnic.spec.ip.ipAddress
+                                break
+                except Exception:
+                    pass
+
+                processor_type = hardware.cpuModel if hardware else ""
+                logical_processors = hardware.numCpuThreads if hardware else 0
+                memory_gb = round(hardware.memorySize / (1024 ** 3), 1) if hardware and hardware.memorySize else 0.0
+                hypervisor_type = config.product.fullName if config and config.product else ""
+
+                nic_count = 0
+                try:
+                    if config and config.network and config.network.pnic:
+                        nic_count = len(config.network.pnic)
+                except Exception:
+                    pass
+
+                status = "connected" if summary.runtime.connectionState == "connected" else str(summary.runtime.connectionState) if summary and summary.runtime else ""
+
+                hosts.append({
+                    "host_name": host_name,
+                    "ip_address": ip_addr,
+                    "processor_type": processor_type,
+                    "logical_processors": logical_processors,
+                    "memory_gb": memory_gb,
+                    "hypervisor_type": hypervisor_type,
+                    "nic_count": nic_count,
+                    "status": status,
+                })
+            except Exception:
+                logger.exception("采集 ESXi 主机 %s 失败", getattr(host, "name", "未知"))
+        container.Destroy()
+    except Exception:
+        logger.exception("创建 HostSystem ContainerView 失败")
+    return hosts
+
+
+def _collect_datastores(content):
+    """采集所有 Datastore 信息。"""
+    datastores = []
+    try:
+        container = content.viewManager.CreateContainerView(
+            content.rootFolder, [vim.Datastore], True
+        )
+        for ds in container.view:
+            try:
+                summary = ds.summary
+                ds_name = ds.name or ""
+                ds_status = "accessible" if summary.accessible else "inaccessible" if summary else ""
+                ds_type = summary.type if summary else ""
+                capacity_gb = round(summary.capacity / (1024 ** 3), 1) if summary and summary.capacity else 0.0
+                free_gb = round(summary.freeSpace / (1024 ** 3), 1) if summary and summary.freeSpace else 0.0
+
+                datastores.append({
+                    "datastore_name": ds_name,
+                    "status": ds_status,
+                    "ds_type": ds_type,
+                    "capacity_gb": capacity_gb,
+                    "free_gb": free_gb,
+                })
+            except Exception:
+                logger.exception("采集 Datastore %s 失败", getattr(ds, "name", "未知"))
+        container.Destroy()
+    except Exception:
+        logger.exception("创建 Datastore ContainerView 失败")
+    return datastores
+
+
 def _get_vm_list(content, cluster_name=""):
     if cluster_name:
         from pyVmomi import vim as _vim
@@ -255,8 +363,8 @@ def _get_vm_list(content, cluster_name=""):
     return vms
 
 
-def _do_vcenter_scan(host: str, username: str, password: str, port: int) -> list:
-    """同步扫描 vCenter，返回 VM 数据行列表。"""
+def _do_vcenter_scan(host: str, username: str, password: str, port: int) -> dict:
+    """同步扫描 vCenter，返回 {"vms": [...], "hosts": [...], "datastores": [...]}。"""
     if not PYVMOMI_AVAILABLE:
         raise RuntimeError("pyVmomi 未安装，无法执行 vCenter 扫描")
 
@@ -266,6 +374,10 @@ def _do_vcenter_scan(host: str, username: str, password: str, port: int) -> list
         dvpg_map = _build_dvpg_map(content)
         standard_pg_vlan_map = _build_standard_pg_vlan_map(content)
         vms = _get_vm_list(content)
+
+        # 采集 ESXi 主机和 Datastore
+        esxi_hosts = _collect_esxi_hosts(content)
+        datastores = _collect_datastores(content)
 
         rows = []
         for vm in vms:
@@ -307,6 +419,9 @@ def _do_vcenter_scan(host: str, username: str, password: str, port: int) -> list
                 except Exception:
                     remark = ""
 
+                # VM 存储
+                provisioned_gb, used_gb = _collect_vm_storage(vm)
+
                 rows.append({
                     "datacenter": datacenter_name,
                     "cluster": cluster_name,
@@ -322,11 +437,13 @@ def _do_vcenter_scan(host: str, username: str, password: str, port: int) -> list
                     "os_name": os_name,
                     "cpu_count": cpu_num,
                     "memory_gb": memory_gb,
+                    "provisioned_gb": provisioned_gb,
+                    "used_gb": used_gb,
                     "remark": remark,
                 })
             except Exception:
                 logger.exception("处理 VM %s 失败", getattr(vm, "name", "未知"))
-        return rows
+        return {"vms": rows, "hosts": esxi_hosts, "datastores": datastores}
     finally:
         Disconnect(si)
 
@@ -392,6 +509,8 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
     db = SessionLocal()
     vc = None
     count = 0
+    host_count = 0
+    ds_count = 0
     try:
         vc = db.query(VCenter).get(vcenter_id)
         if not vc or not vc.is_active:
@@ -402,12 +521,15 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
         db.commit()
 
         loop = asyncio.get_running_loop()
-        rows = await loop.run_in_executor(None, _do_vcenter_scan, vc.host, vc.username, vc.password, vc.port)
+        result = await loop.run_in_executor(None, _do_vcenter_scan, vc.host, vc.username, vc.password, vc.port)
+        rows = result["vms"]
+        esxi_hosts = result["hosts"]
+        datastores = result["datastores"]
 
         # 新 session 写数据（快照 → DELETE → INSERT → diff → 历史）
         write_db = SessionLocal()
         try:
-            # 快照旧数据
+            # 快照旧 VM 数据
             old_rows = write_db.query(VMInventory).filter(
                 VMInventory.vcenter_id == vcenter_id
             ).all()
@@ -415,10 +537,22 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
             for r in old_rows:
                 old_by_key[(r.vm_name, r.vcenter_id)] = r
 
-            # DELETE + INSERT
+            # DELETE + INSERT VMs
             write_db.query(VMInventory).filter(VMInventory.vcenter_id == vcenter_id).delete()
             for r in rows:
                 write_db.add(VMInventory(vcenter_id=vcenter_id, **r))
+
+            # ESXi 主机：DELETE + INSERT
+            write_db.query(EsxiHost).filter(EsxiHost.vcenter_id == vcenter_id).delete()
+            for h in esxi_hosts:
+                write_db.add(EsxiHost(vcenter_id=vcenter_id, **h))
+            host_count = len(esxi_hosts)
+
+            # Datastore：DELETE + INSERT
+            write_db.query(Datastore).filter(Datastore.vcenter_id == vcenter_id).delete()
+            for ds in datastores:
+                write_db.add(Datastore(vcenter_id=vcenter_id, **ds))
+            ds_count = len(datastores)
 
             # 扫描后处理：通过 MAC 从交换机 scan_results 补充缺失 IP
             _fill_ips_from_mac(write_db, vcenter_id)
@@ -451,7 +585,7 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
             db_vc.last_vm_count = count
             db_vc.last_scan_error = None
             db.commit()
-        logger.info("vCenter %s 扫描完成，共 %s 台 VM，耗时 %ss", vc.host, count, duration)
+        logger.info("vCenter %s 扫描完成，VM=%s 主机=%s 存储=%s，耗时 %ss", vc.host, count, host_count, ds_count, duration)
     except Exception as e:
         duration = round((datetime.now() - start_time).total_seconds(), 1)
         logger.exception("vCenter %s 扫描失败", vc.host if vc else vcenter_id)

@@ -8,14 +8,34 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import engine, Base
-from app.models import User, Switch, ScanResult, RouteTable, ScanLog, Subnet, History, VCenter, VMInventory
+from app.models import User, Switch, ScanResult, RouteTable, ScanLog, Subnet, History, VCenter, VMInventory, EsxiHost, Datastore
 from app.api.router import api_router
 from app.services.scheduler_service import start_scheduler, shutdown_scheduler
+
+
+def _migrate_vm_inventory_columns():
+    """为已有 vm_inventory 表添加新列（SQLite ALTER TABLE）"""
+    import sqlite3
+    try:
+        db_path = engine.url.database
+        if db_path and db_path != ":memory:":
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cols = [r[1] for r in cur.execute("PRAGMA table_info(vm_inventory)").fetchall()]
+            if "provisioned_gb" not in cols:
+                cur.execute("ALTER TABLE vm_inventory ADD COLUMN provisioned_gb FLOAT")
+            if "used_gb" not in cols:
+                cur.execute("ALTER TABLE vm_inventory ADD COLUMN used_gb FLOAT")
+            conn.commit()
+            conn.close()
+    except Exception:
+        pass
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _migrate_vm_inventory_columns()
     start_scheduler()
     yield
     shutdown_scheduler()

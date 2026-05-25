@@ -26,3 +26,5 @@ class VCenter(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
     vm_inventories = relationship("VMInventory", back_populates="vcenter", cascade="all, delete-orphan")
+    esxi_hosts = relationship("EsxiHost", back_populates="vcenter", cascade="all, delete-orphan")
+    datastores = relationship("Datastore", back_populates="vcenter", cascade="all, delete-orphan")

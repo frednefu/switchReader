@@ -37,64 +37,131 @@
       <el-alert :title="'扫描错误: ' + vcenter.last_scan_error" type="error" show-icon :closable="false" />
     </div>
 
-    <el-card style="margin-top:20px;">
-      <template #header>
-        <span>虚拟机清单（共 {{ total }} 台）</span>
-      </template>
-      <div class="filter-bar">
-        <el-input v-model="search" placeholder="搜索名称、IP、MAC、OS、集群、主机、网络、文件夹..." clearable style="width:300px"
-          @keyup.enter="page=1;fetchVMs()" @clear="page=1;fetchVMs()" />
-        <el-select v-model="filterPower" clearable placeholder="电源状态" style="width:110px" @change="page=1;fetchVMs()">
-          <el-option v-for="s in filterOptions.power_states" :key="s" :label="s==='poweredOn'?'开机':s==='poweredOff'?'关机':s" :value="s" />
-        </el-select>
-        <el-select v-model="filterOS" clearable placeholder="操作系统" style="width:140px" filterable @change="page=1;fetchVMs()">
-          <el-option v-for="s in filterOptions.os_names" :key="s" :label="s" :value="s" />
-        </el-select>
-        <el-select v-model="filterNetwork" clearable placeholder="网络" style="width:130px" filterable @change="page=1;fetchVMs()">
-          <el-option v-for="s in filterOptions.networks" :key="s" :label="s" :value="s" />
-        </el-select>
-        <el-select v-model="filterFolder" clearable placeholder="文件夹" style="width:130px" filterable @change="page=1;fetchVMs()">
-          <el-option v-for="s in filterOptions.folders" :key="s" :label="s" :value="s" />
-        </el-select>
-        <el-button type="primary" @click="page=1;fetchVMs()">查询</el-button>
-        <el-button @click="exportExcel" :loading="exporting">
-          <el-icon><Download /></el-icon>导出 Excel
-        </el-button>
-      </div>
-
-      <el-table :data="vms" stripe v-loading="loading" style="width:100%" max-height="600">
-        <template #empty>
-          <el-empty description="暂无虚拟机数据，请先触发扫描" :image-size="60" />
+    <el-tabs v-model="activeTab" style="margin-top:20px;" @tab-change="onTabChange">
+      <el-tab-pane label="虚拟机清单" name="vms">
+        <template #label>
+          <span>虚拟机清单（{{ total }} 台）</span>
         </template>
-        <el-table-column prop="vm_name" label="虚拟机名称" min-width="180" fixed show-overflow-tooltip />
-        <el-table-column prop="power_state" label="电源" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.power_state === 'poweredOn' ? 'success' : 'info'" size="small">
-              {{ row.power_state === 'poweredOn' ? '开机' : row.power_state === 'poweredOff' ? '关机' : row.power_state }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="ip_address" label="IP 地址" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="mac_address" label="MAC 地址" min-width="140" show-overflow-tooltip />
-        <el-table-column prop="os_name" label="操作系统" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="cpu_count" label="CPU" width="60" />
-        <el-table-column prop="memory_gb" label="内存(GB)" width="90" />
-        <el-table-column prop="datacenter" label="数据中心" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="cluster" label="集群" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="esxi_host" label="ESXi 主机" min-width="150" show-overflow-tooltip />
-        <el-table-column prop="network_name" label="网络" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="vlan_id" label="VLAN" width="80" />
-        <el-table-column prop="resource_pool" label="资源池" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="vm_folder" label="文件夹" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="remark" label="备注" width="100" show-overflow-tooltip />
-      </el-table>
+        <div class="filter-bar">
+          <el-input v-model="search" placeholder="搜索名称、IP、MAC、OS、集群、主机、网络、文件夹..." clearable style="width:300px"
+            @keyup.enter="page=1;fetchVMs()" @clear="page=1;fetchVMs()" />
+          <el-select v-model="filterPower" clearable placeholder="电源状态" style="width:110px" @change="page=1;fetchVMs()">
+            <el-option v-for="s in filterOptions.power_states" :key="s" :label="s==='poweredOn'?'开机':s==='poweredOff'?'关机':s" :value="s" />
+          </el-select>
+          <el-select v-model="filterOS" clearable placeholder="操作系统" style="width:140px" filterable @change="page=1;fetchVMs()">
+            <el-option v-for="s in filterOptions.os_names" :key="s" :label="s" :value="s" />
+          </el-select>
+          <el-select v-model="filterNetwork" clearable placeholder="网络" style="width:130px" filterable @change="page=1;fetchVMs()">
+            <el-option v-for="s in filterOptions.networks" :key="s" :label="s" :value="s" />
+          </el-select>
+          <el-select v-model="filterFolder" clearable placeholder="文件夹" style="width:130px" filterable @change="page=1;fetchVMs()">
+            <el-option v-for="s in filterOptions.folders" :key="s" :label="s" :value="s" />
+          </el-select>
+          <el-button type="primary" @click="page=1;fetchVMs()">查询</el-button>
+          <el-button @click="exportExcel" :loading="exporting">
+            <el-icon><Download /></el-icon>导出 Excel
+          </el-button>
+        </div>
 
-      <div class="pagination-wrap" v-if="total > 0">
-        <el-pagination
-          v-model:current-page="page" :page-size="size" :total="total"
-          layout="total, prev, pager, next" @current-change="fetchVMs" />
-      </div>
-    </el-card>
+        <el-table :data="vms" stripe v-loading="loading" style="width:100%" max-height="600">
+          <template #empty>
+            <el-empty description="暂无虚拟机数据，请先触发扫描" :image-size="60" />
+          </template>
+          <el-table-column prop="vm_name" label="虚拟机名称" min-width="180" fixed show-overflow-tooltip />
+          <el-table-column prop="power_state" label="电源" width="90">
+            <template #default="{ row }">
+              <el-tag :type="row.power_state === 'poweredOn' ? 'success' : 'info'" size="small">
+                {{ row.power_state === 'poweredOn' ? '开机' : row.power_state === 'poweredOff' ? '关机' : row.power_state }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="ip_address" label="IP 地址" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="mac_address" label="MAC 地址" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="os_name" label="操作系统" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="cpu_count" label="CPU" width="60" />
+          <el-table-column prop="memory_gb" label="内存(GB)" width="90" />
+          <el-table-column prop="datacenter" label="数据中心" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="cluster" label="集群" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="esxi_host" label="ESXi 主机" min-width="150" show-overflow-tooltip />
+          <el-table-column prop="network_name" label="网络" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="vlan_id" label="VLAN" width="80" />
+          <el-table-column prop="resource_pool" label="资源池" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="vm_folder" label="文件夹" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="remark" label="备注" width="100" show-overflow-tooltip />
+        </el-table>
+
+        <div class="pagination-wrap" v-if="total > 0">
+          <el-pagination
+            v-model:current-page="page" :page-size="size" :total="total"
+            layout="total, prev, pager, next" @current-change="fetchVMs" />
+        </div>
+      </el-tab-pane>
+
+      <el-tab-pane label="ESXi 主机" name="hosts">
+        <template #label>
+          <span>ESXi 主机（{{ hostTotal }} 台）</span>
+        </template>
+        <el-table :data="hosts" stripe v-loading="loadingHosts" style="width:100%" max-height="600">
+          <template #empty>
+            <el-empty description="暂无 ESXi 主机数据，请先触发扫描" :image-size="60" />
+          </template>
+          <el-table-column prop="host_name" label="主机名" min-width="200" fixed show-overflow-tooltip />
+          <el-table-column prop="ip_address" label="管理 IP" min-width="140" show-overflow-tooltip />
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'connected' ? 'success' : 'danger'" size="small">
+                {{ row.status === 'connected' ? '在线' : row.status }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="processor_type" label="处理器类型" min-width="240" show-overflow-tooltip />
+          <el-table-column prop="logical_processors" label="逻辑处理器" width="100" align="center" />
+          <el-table-column prop="memory_gb" label="内存(GB)" width="100" align="center" />
+          <el-table-column prop="hypervisor_type" label="Hypervisor" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="nic_count" label="网卡数" width="80" align="center" />
+        </el-table>
+      </el-tab-pane>
+
+      <el-tab-pane label="存储器" name="datastores">
+        <template #label>
+          <span>存储器（{{ dsTotal }} 个）</span>
+        </template>
+        <el-table :data="datastores" stripe v-loading="loadingDS" style="width:100%" max-height="600">
+          <template #empty>
+            <el-empty description="暂无存储器数据，请先触发扫描" :image-size="60" />
+          </template>
+          <el-table-column prop="datastore_name" label="名称" min-width="220" fixed show-overflow-tooltip />
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 'accessible' ? 'success' : 'danger'" size="small">
+                {{ row.status === 'accessible' ? '正常' : row.status }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="ds_type" label="类型" width="100" />
+          <el-table-column label="总容量(GB)" width="120" align="right">
+            <template #default="{ row }">{{ row.capacity_gb?.toFixed(1) || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="可用(GB)" width="120" align="right">
+            <template #default="{ row }">{{ row.free_gb?.toFixed(1) || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="使用率" min-width="200">
+            <template #default="{ row }">
+              <div style="display:flex;align-items:center;gap:8px;">
+                <el-progress
+                  :percentage="row.capacity_gb > 0 ? +((1 - row.free_gb / row.capacity_gb) * 100).toFixed(1) : 0"
+                  :stroke-width="14"
+                  :color="usageColor(row)"
+                  style="flex:1;" />
+                <span style="font-size:12px;color:#64748b;white-space:nowrap;">
+                  {{ row.capacity_gb > 0 ? ((1 - row.free_gb / row.capacity_gb) * 100).toFixed(1) : 0 }}%
+                </span>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
@@ -102,7 +169,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { getVCenter, triggerVCenterScan, getVCenterVMs, exportVCenterVMs } from '@/api/vcenters'
+import { getVCenter, triggerVCenterScan, getVCenterVMs, exportVCenterVMs, getVCenterHosts, getVCenterDatastores } from '@/api/vcenters'
 import api from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -121,6 +188,47 @@ const filterOS = ref('')
 const filterNetwork = ref('')
 const filterFolder = ref('')
 const filterOptions = ref({ power_states: [], os_names: [], networks: [], folders: [] })
+const activeTab = ref('vms')
+const hosts = ref([])
+const datastores = ref([])
+const hostTotal = ref(0)
+const dsTotal = ref(0)
+const loadingHosts = ref(false)
+const loadingDS = ref(false)
+
+function usageColor(row) {
+  const pct = row.capacity_gb > 0 ? (1 - row.free_gb / row.capacity_gb) * 100 : 0
+  if (pct > 80) return '#ef4444'
+  if (pct > 60) return '#f59e0b'
+  return '#10b981'
+}
+
+async function fetchHosts() {
+  loadingHosts.value = true
+  try {
+    const res = await getVCenterHosts(route.params.id)
+    hosts.value = res.items || []
+    hostTotal.value = res.total || 0
+  } finally {
+    loadingHosts.value = false
+  }
+}
+
+async function fetchDatastores() {
+  loadingDS.value = true
+  try {
+    const res = await getVCenterDatastores(route.params.id)
+    datastores.value = res.items || []
+    dsTotal.value = res.total || 0
+  } finally {
+    loadingDS.value = false
+  }
+}
+
+function onTabChange(name) {
+  if (name === 'hosts' && hosts.value.length === 0) fetchHosts()
+  else if (name === 'datastores' && datastores.value.length === 0) fetchDatastores()
+}
 
 async function fetchVCenter() {
   vcenter.value = await getVCenter(route.params.id)

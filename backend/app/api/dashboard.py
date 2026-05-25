@@ -10,20 +10,195 @@ from app.models.scan_result import ScanResult
 from app.models.subnet import Subnet
 from app.models.vcenter import VCenter
 from app.models.vm_inventory import VMInventory
+from app.models.esxi_host import EsxiHost
+from app.models.datastore import Datastore
 from app.models.f5 import F5Device, F5VirtualServer, F5PoolMember, F5Rule, F5ApplicationMap
 from app.models.zdns import ZDNSDevice, ZDNSRecord, ZDNSDomainMap
+from app.models.qax import QianXinDevice, QianXinServer
 from app.models.scan_log import ScanLog, ScanStatus
 from app.models.history import History
 from app.schemas.subnet import (
     DashboardStats, AssetDashboardStats, VCenterStats, VCenterResourceStat,
-    F5Stats, ZDNSStats, ZDNSRecordTypeStat,
-    SourceScanStat, SubnetUtilization, AvailableIpResponse, SubnetOccupiedResponse, SubnetOccupiedIp,
+    F5Stats, ZDNSStats, ZDNSRecordTypeStat, QAXStats,
+    SourceScanStat, DistributionItem, SubnetUtilization, AvailableIpResponse,
+    SubnetOccupiedResponse, SubnetOccupiedIp,
     AssetDomainItem, AssetServiceItem, AssetDetailResponse,
 )
 from app.api.deps import get_current_user
 from app.services.subnet_service import get_subnet_utilization, get_available_ips, get_occupied_ips
 
 _IP_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+
+# ── 辅助函数：OS 归并 & 分桶 ──
+
+def _normalize_qax_os(rows) -> list:
+    """椒图 OS 归并：提取主版本/年份，合并相近版本"""
+    buckets: dict[str, int] = {}
+    for os_name, cnt in rows:
+        if not os_name:
+            continue
+        label = os_name.strip()
+        # CentOS: 提取主版本 → "CentOS 7"（兼容 "CentOS Linux 7 (Core)" / "CentOS release 6.3 (Final)"）
+        m = re.match(r'CentOS\s+(?:Linux\s+|release\s+)?(\d+)', label)
+        if m:
+            label = f'CentOS {m.group(1)}'
+        # Windows Server: 提取年份 → "Windows Server 2016"
+        elif label.startswith('Microsoft Windows Server'):
+            m = re.match(r'Microsoft Windows Server (\d{4})', label)
+            if m:
+                label = f'Windows Server {m.group(1)}'
+        # openEuler: 保留主版本
+        elif label.startswith('openEuler'):
+            m = re.match(r'openEuler (\d+\.\d+)', label)
+            if m:
+                label = f'openEuler {m.group(1)}'
+        # Ubuntu: 保留版本号
+        elif label.startswith('Ubuntu'):
+            m = re.match(r'Ubuntu (\d+\.\d+)', label)
+            if m:
+                label = f'Ubuntu {m.group(1)}'
+        buckets[label] = buckets.get(label, 0) + cnt
+    sorted_items = sorted(buckets.items(), key=lambda x: x[1], reverse=True)
+    return [DistributionItem(label=k, count=v) for k, v in sorted_items]
+
+
+def _normalize_vm_os(rows) -> list:
+    """vCenter VM OS 归并：提取主版本/年份，合并相近版本"""
+    buckets: dict[str, int] = {}
+    for os_name, cnt in rows:
+        if not os_name:
+            continue
+        label = os_name.strip()
+        # Windows: "Microsoft Windows Server 2012 (64-bit)" / "Microsoft Windows Server 2016 or later (64-bit)"
+        if 'Windows' in label:
+            m = re.match(r'Microsoft Windows Server (\d{4})', label)
+            if m:
+                label = f'Windows Server {m.group(1)}'
+            elif 'Windows 10' in label:
+                label = 'Windows 10'
+            elif 'Windows 7' in label:
+                label = 'Windows 7'
+            else:
+                label = label.replace('Microsoft ', '')
+        # CentOS: "CentOS 7 (64-bit)" / "CentOS 4/5/6/7 (64-bit)" / "CentOS 4/5/6 (64-bit)"
+        elif 'CentOS' in label:
+            m = re.match(r'CentOS (\d+(?:/\d+)*)', label)
+            if m:
+                vers = m.group(1).split('/')
+                if len(vers) == 1:
+                    label = f'CentOS {vers[0]}'
+                else:
+                    label = f'CentOS {vers[0]}-{vers[-1]}'
+        # RHEL / Red Hat: "Red Hat Enterprise Linux 7 (64-bit)"
+        elif 'Red Hat' in label:
+            m = re.search(r'Red Hat Enterprise Linux (\d+)', label)
+            if m:
+                label = f'RHEL {m.group(1)}'
+        # Ubuntu: "Ubuntu Linux (64-bit)"
+        elif 'Ubuntu' in label:
+            m = re.search(r'Ubuntu\s+(?:Linux\s+)?(\d+\.\d+)', label)
+            if m:
+                label = f'Ubuntu {m.group(1)}'
+            else:
+                label = 'Ubuntu Linux'
+        # Debian: "Debian GNU/Linux 10 (64-bit)"
+        elif 'Debian' in label:
+            m = re.search(r'Debian GNU/Linux (\d+)', label)
+            if m:
+                label = f'Debian {m.group(1)}'
+        # Oracle Linux: "Oracle Linux 7 (64-bit)" / "Oracle Linux 4/5/6/7 (64-bit)"
+        elif 'Oracle Linux' in label:
+            m = re.match(r'Oracle Linux (\d+(?:/\d+)*)', label)
+            if m:
+                vers = m.group(1).split('/')
+                if len(vers) == 1:
+                    label = f'Oracle Linux {vers[0]}'
+                else:
+                    label = f'Oracle Linux {vers[0]}-{vers[-1]}'
+        # SUSE / SLES: "SUSE Linux Enterprise 11 (64-bit)"
+        elif 'SUSE' in label:
+            m = re.search(r'SUSE\s+(?:Linux\s+)?(?:Enterprise\s+)?(\d+)', label)
+            if m:
+                label = f'SLES {m.group(1)}'
+        # Other 3.x / Other 2.6.x 合并
+        elif label.startswith('Other 3.x'):
+            label = 'Other Linux 3.x'
+        elif label.startswith('Other 2.6.x'):
+            label = 'Other Linux 2.6.x'
+        elif label.startswith('Other Linux'):
+            label = 'Other Linux'
+        elif label.startswith('Other '):
+            label = 'Other'
+        # 去掉常见的后缀
+        label = label.replace(' (64-bit)', '').replace(' (32-bit)', '').replace(' or later', '')
+        buckets[label] = buckets.get(label, 0) + cnt
+    sorted_items = sorted(buckets.items(), key=lambda x: x[1], reverse=True)
+    return [DistributionItem(label=k, count=v) for k, v in sorted_items]
+
+
+def _bucket_cpu_cores(values: list) -> list:
+    """CPU 核数分桶：1-2, 3-4, 5-8, 9-16, 17+"""
+    buckets = {"1-2核": 0, "3-4核": 0, "5-8核": 0, "9-16核": 0, "17核以上": 0}
+    for v in values:
+        if v is None:
+            continue
+        if v <= 2:
+            buckets["1-2核"] += 1
+        elif v <= 4:
+            buckets["3-4核"] += 1
+        elif v <= 8:
+            buckets["5-8核"] += 1
+        elif v <= 16:
+            buckets["9-16核"] += 1
+        else:
+            buckets["17核以上"] += 1
+    return [DistributionItem(label=k, count=v) for k, v in buckets.items() if v > 0]
+
+
+def _bucket_memory(values: list) -> list:
+    """内存容量分桶：0-2GB, 2-4GB, 4-8GB, 8-16GB, 16-32GB, 32-64GB, 64GB+"""
+    buckets = {"0-2GB": 0, "2-4GB": 0, "4-8GB": 0, "8-16GB": 0, "16-32GB": 0, "32-64GB": 0, "64GB以上": 0}
+    for v in values:
+        if v is None:
+            continue
+        if v < 2:
+            buckets["0-2GB"] += 1
+        elif v < 4:
+            buckets["2-4GB"] += 1
+        elif v < 8:
+            buckets["4-8GB"] += 1
+        elif v < 16:
+            buckets["8-16GB"] += 1
+        elif v < 32:
+            buckets["16-32GB"] += 1
+        elif v < 64:
+            buckets["32-64GB"] += 1
+        else:
+            buckets["64GB以上"] += 1
+    return [DistributionItem(label=k, count=v) for k, v in buckets.items() if v > 0]
+
+
+def _normalize_cpu_types(rows) -> list:
+    """ESXi CPU 型号归并：去除冗余后缀，合并同一系列。"""
+    buckets: dict[str, int] = {}
+    for cpu_model, cnt in rows:
+        if not cpu_model:
+            continue
+        label = cpu_model.strip()
+        label = re.sub(r'\s*(CPU|Processor)\s*$', '', label, flags=re.IGNORECASE)
+        label = re.sub(r'\s*@\s*\d+\.?\d*GHz.*$', '', label)
+        label = re.sub(r'\s+\d+-\w+$', '', label)
+        if 'Intel' in label or 'Xeon' in label:
+            label = label.replace('Intel(R) ', 'Intel ').replace('(R)', '')
+            label = re.sub(r'Intel\s+Xeon\s+CPU\s+', 'Intel Xeon ', label)
+            label = re.sub(r'(\d)\d{2,}(?:\s*(v\d|@.*)?$)', r'\1xx', label)
+        elif 'AMD' in label or 'EPYC' in label:
+            label = label.replace('(R)', '').replace('(tm)', '').replace('(TM)', '')
+            label = re.sub(r'(\d)\d{2,}P?\s*.*$', r'\1xx', label)
+        buckets[label] = buckets.get(label, 0) + cnt
+    sorted_items = sorted(buckets.items(), key=lambda x: x[1], reverse=True)
+    return [DistributionItem(label=k, count=v) for k, v in sorted_items]
+
 
 router = APIRouter(prefix="/dashboard", tags=["仪表盘"])
 
@@ -71,6 +246,42 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
         for r in vc_resource_rows
     ]
 
+    # vCenter VM OS 分布（GROUP BY os_name，过滤空值，Python 层归并）
+    vm_os_rows = db.query(
+        VMInventory.os_name, func.count(VMInventory.id)
+    ).filter(VMInventory.os_name != "").group_by(VMInventory.os_name).order_by(
+        func.count(VMInventory.id).desc()
+    ).all()
+    vcenter_os_dist = _normalize_vm_os(vm_os_rows)
+
+    # CPU 核数分桶
+    cpu_values = db.query(VMInventory.cpu_count).filter(
+        VMInventory.cpu_count.isnot(None)
+    ).all()
+    cpu_cores_dist = _bucket_cpu_cores([r[0] for r in cpu_values])
+
+    # 内存分桶
+    mem_values = db.query(VMInventory.memory_gb).filter(
+        VMInventory.memory_gb.isnot(None)
+    ).all()
+    memory_dist = _bucket_memory([r[0] for r in mem_values])
+
+    # ESXi CPU 类型分布
+    cpu_type_rows = db.query(
+        EsxiHost.processor_type, func.count(EsxiHost.id)
+    ).filter(EsxiHost.processor_type != "").group_by(EsxiHost.processor_type).order_by(
+        func.count(EsxiHost.id).desc()
+    ).all()
+    esxi_cpu_types = _normalize_cpu_types(cpu_type_rows)
+
+    # Datastore 汇总
+    ds_summary = db.query(
+        func.coalesce(func.sum(Datastore.capacity_gb), 0.0),
+        func.coalesce(func.sum(Datastore.free_gb), 0.0),
+    ).first()
+    ds_total_capacity = round(float(ds_summary[0] or 0.0), 1)
+    ds_total_free = round(float(ds_summary[1] or 0.0), 1)
+
     vcenter = VCenterStats(
         vcenter_count=vcenter_count,
         vm_total=vm_total,
@@ -79,6 +290,12 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
         total_cpu_cores=total_cpu_cores,
         total_memory_gb=total_memory_gb,
         per_vcenter=per_vcenter,
+        os_distribution=vcenter_os_dist,
+        cpu_cores_distribution=cpu_cores_dist,
+        memory_distribution=memory_dist,
+        esxi_cpu_types=esxi_cpu_types,
+        datastore_total_capacity_gb=ds_total_capacity,
+        datastore_total_free_gb=ds_total_free,
     )
 
     # ── F5 ──
@@ -138,11 +355,29 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
         record_types=record_types,
     )
 
+    # ── 椒图（QAX） ──
+    qax_device_count = db.query(func.count(QianXinDevice.id)).filter(
+        QianXinDevice.enabled == True
+    ).scalar() or 0
+    qax_server_count = db.query(func.count(QianXinServer.id)).scalar() or 0
+    qax_os_rows = db.query(
+        QianXinServer.operation_system, func.count(QianXinServer.id)
+    ).group_by(QianXinServer.operation_system).order_by(
+        func.count(QianXinServer.id).desc()
+    ).all()
+    qax_os_dist = _normalize_qax_os(qax_os_rows)
+
+    qax = QAXStats(
+        device_count=qax_device_count,
+        server_count=qax_server_count,
+        os_distribution=qax_os_dist,
+    )
+
     # ── 各数据源扫描次数 ──
     source_rows = db.query(
         ScanLog.source_type, func.count(ScanLog.id)
     ).group_by(ScanLog.source_type).all()
-    source_labels = {"switch": "交换机", "vcenter": "vCenter", "f5": "F5", "zdns": "ZDNS"}
+    source_labels = {"switch": "交换机", "vcenter": "vCenter", "f5": "F5", "zdns": "ZDNS", "qax": "椒图"}
     scan_by_source = [
         SourceScanStat(source_type=row[0], source_label=source_labels.get(row[0], row[0]), count=row[1])
         for row in source_rows
@@ -209,6 +444,7 @@ def dashboard_stats(db: Session = Depends(get_db), current_user=Depends(get_curr
         vcenter=vcenter,
         f5=f5,
         zdns=zdns,
+        qax=qax,
         asset=asset,
         scan_by_source=scan_by_source,
         last_scan_total=last_scan_total,

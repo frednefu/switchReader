@@ -55,6 +55,14 @@ export function exportVMInventory(params) {
   })
 }
 
+export function getVCenterHosts(id) {
+  return api.get(`/vcenters/${id}/hosts`).then((r) => r.data)
+}
+
+export function getVCenterDatastores(id) {
+  return api.get(`/vcenters/${id}/datastores`).then((r) => r.data)
+}
+
 export function exportVCenterVMs(id, params) {
   return api.get(`/vcenters/${id}/vms/export`, { params, responseType: 'blob' }).then((r) => {
     const url = URL.createObjectURL(r.data)

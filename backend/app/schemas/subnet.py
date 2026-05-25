@@ -47,6 +47,11 @@ class SubnetUtilization(BaseModel):
 
 # ── 多数据源统计模型 ──
 
+class DistributionItem(BaseModel):
+    label: str
+    count: int
+
+
 class VCenterResourceStat(BaseModel):
     vcenter_name: str
     cpu_cores: int
@@ -61,6 +66,12 @@ class VCenterStats(BaseModel):
     total_cpu_cores: int = 0
     total_memory_gb: float = 0.0
     per_vcenter: List[VCenterResourceStat] = []
+    os_distribution: List[DistributionItem] = []
+    cpu_cores_distribution: List[DistributionItem] = []
+    memory_distribution: List[DistributionItem] = []
+    esxi_cpu_types: List[DistributionItem] = []
+    datastore_total_capacity_gb: float = 0.0
+    datastore_total_free_gb: float = 0.0
 
 
 class F5Stats(BaseModel):
@@ -95,6 +106,12 @@ class SourceScanStat(BaseModel):
     count: int
 
 
+class QAXStats(BaseModel):
+    device_count: int = 0
+    server_count: int = 0
+    os_distribution: List[DistributionItem] = []
+
+
 class AssetDashboardStats(BaseModel):
     域名总数: int = 0
     zdns域名: int = 0
@@ -111,6 +128,7 @@ class DashboardStats(BaseModel):
     vcenter: VCenterStats = VCenterStats()
     f5: F5Stats = F5Stats()
     zdns: ZDNSStats = ZDNSStats()
+    qax: QAXStats = QAXStats()
     asset: AssetDashboardStats = AssetDashboardStats()
     scan_by_source: List[SourceScanStat] = []
     last_scan_total: int = 0

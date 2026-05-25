@@ -29,6 +29,8 @@ class VMInventory(Base):
     os_name = Column(String(255), default="")
     cpu_count = Column(Integer, nullable=True)
     memory_gb = Column(Float, nullable=True)
+    provisioned_gb = Column(Float, nullable=True)
+    used_gb = Column(Float, nullable=True)
     remark = Column(String(512), default="")
 
     created_at = Column(DateTime, server_default=func.now(), nullable=False)

@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h2>仪表盘</h2>
-        <p class="page-desc">全栈资源概览 · 交换机 / vCenter / F5 / ZDNS</p>
+        <p class="page-desc">全栈资源概览 · 交换机 / vCenter / F5 / ZDNS / 椒图</p>
       </div>
       <el-button text @click="refreshAll" :loading="refreshing">
         <el-icon><Refresh /></el-icon>刷新
@@ -58,52 +58,53 @@
       </el-col>
     </el-row>
 
-    <el-row :gutter="16" class="stat-row">
-      <el-col :span="6">
-        <div class="stat-card" @click="go('/vcenters')">
-          <div class="stat-icon" style="background: linear-gradient(135deg, #06b6d4, #22d3ee);">
-            <el-icon :size="22"><Cloudy /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.vcenter.vcenter_count }}</div>
-            <div class="stat-title">vCenter</div>
-          </div>
+    <div class="stat-row stat-flex-row">
+      <div class="stat-card" @click="go('/vcenters')">
+        <div class="stat-icon" style="background: linear-gradient(135deg, #06b6d4, #22d3ee);">
+          <el-icon :size="22"><Cloudy /></el-icon>
         </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="stat-card" @click="openVMDialog">
-          <div class="stat-icon" style="background: linear-gradient(135deg, #8b5cf6, #a78bfa);">
-            <el-icon :size="22"><Cpu /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.vcenter.vm_total }}<span class="stat-sub"> / {{ stats.vcenter.vm_powered_on }}开 / {{ stats.vcenter.vm_powered_off }}关</span></div>
-            <div class="stat-title">虚拟机</div>
-          </div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.vcenter.vcenter_count }}</div>
+          <div class="stat-title">vCenter</div>
         </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="stat-card" @click="go('/f5')">
-          <div class="stat-icon" style="background: linear-gradient(135deg, #f97316, #fb923c);">
-            <el-icon :size="22"><Connection /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.f5.device_count }}</div>
-            <div class="stat-title">F5 设备</div>
-          </div>
+      </div>
+      <div class="stat-card" @click="openVMDialog">
+        <div class="stat-icon" style="background: linear-gradient(135deg, #8b5cf6, #a78bfa);">
+          <el-icon :size="22"><Cpu /></el-icon>
         </div>
-      </el-col>
-      <el-col :span="6">
-        <div class="stat-card" @click="go('/zdns')">
-          <div class="stat-icon" style="background: linear-gradient(135deg, #14b8a6, #2dd4bf);">
-            <el-icon :size="22"><Link /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stats.zdns.device_count }}</div>
-            <div class="stat-title">ZDNS 设备</div>
-          </div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.vcenter.vm_total }}<span class="stat-sub"> / {{ stats.vcenter.vm_powered_on }}开 / {{ stats.vcenter.vm_powered_off }}关</span></div>
+          <div class="stat-title">虚拟机</div>
         </div>
-      </el-col>
-    </el-row>
+      </div>
+      <div class="stat-card" @click="go('/f5')">
+        <div class="stat-icon" style="background: linear-gradient(135deg, #f97316, #fb923c);">
+          <el-icon :size="22"><Connection /></el-icon>
+        </div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.f5.device_count }}</div>
+          <div class="stat-title">F5 设备</div>
+        </div>
+      </div>
+      <div class="stat-card" @click="go('/zdns')">
+        <div class="stat-icon" style="background: linear-gradient(135deg, #14b8a6, #2dd4bf);">
+          <el-icon :size="22"><Link /></el-icon>
+        </div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.zdns.device_count }}</div>
+          <div class="stat-title">ZDNS 设备</div>
+        </div>
+      </div>
+      <div class="stat-card" @click="go('/qax')">
+        <div class="stat-icon" style="background: linear-gradient(135deg, #ec4899, #f472b6);">
+          <el-icon :size="22"><Monitor /></el-icon>
+        </div>
+        <div class="stat-info">
+          <div class="stat-value">{{ stats.qax.server_count }}</div>
+          <div class="stat-title">椒图服务器</div>
+        </div>
+      </div>
+    </div>
 
     <el-row :gutter="16" class="stat-row">
       <el-col :span="8">
@@ -199,6 +200,60 @@
           <template #header><strong>vCenter 资源统计</strong></template>
           <div v-if="vcenterResourceEmpty" class="empty-chart"><el-empty description="暂无 vCenter 数据" :image-size="50" /></div>
           <div v-else ref="vcResourceRef" class="chart-container"></div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- ═══════════ 图表第三行：OS 分布 ═══════════ -->
+    <el-row :gutter="16" class="chart-row">
+      <el-col :span="12">
+        <el-card shadow="hover" class="chart-card">
+          <template #header><strong>椒图 OS 分布</strong></template>
+          <div v-if="qaxOSEmpty" class="empty-chart"><el-empty description="暂无椒图数据" :image-size="50" /></div>
+          <div v-else ref="qaxOSRef" class="chart-box-wide"></div>
+        </el-card>
+      </el-col>
+      <el-col :span="12">
+        <el-card shadow="hover" class="chart-card">
+          <template #header><strong>vCenter VM OS 分布</strong></template>
+          <div v-if="vcOSEmpty" class="empty-chart"><el-empty description="暂无 VM OS 数据" :image-size="50" /></div>
+          <div v-else ref="vcOSRef" class="chart-box-wide"></div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- ═══════════ 图表第四行：CPU 核数 + 内存分布 ═══════════ -->
+    <el-row :gutter="16" class="chart-row">
+      <el-col :span="12">
+        <el-card shadow="hover" class="chart-card">
+          <template #header><strong>vCenter VM CPU 核数分布</strong></template>
+          <div v-if="vcCpuEmpty" class="empty-chart"><el-empty description="暂无 VM CPU 数据" :image-size="50" /></div>
+          <div v-else ref="vcCpuRef" class="chart-box"></div>
+        </el-card>
+      </el-col>
+      <el-col :span="12">
+        <el-card shadow="hover" class="chart-card">
+          <template #header><strong>vCenter VM 内存容量分布</strong></template>
+          <div v-if="vcMemEmpty" class="empty-chart"><el-empty description="暂无 VM 内存数据" :image-size="50" /></div>
+          <div v-else ref="vcMemRef" class="chart-box"></div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- ═══════════ 图表第五行：ESXi CPU 类型 + 存储容量 ═══════════ -->
+    <el-row :gutter="16" class="chart-row">
+      <el-col :span="12">
+        <el-card shadow="hover" class="chart-card">
+          <template #header><strong>ESXi CPU 类型分布</strong></template>
+          <div v-if="esxiCpuEmpty" class="empty-chart"><el-empty description="暂无 ESXi 数据" :image-size="50" /></div>
+          <div v-else ref="esxiCpuRef" class="chart-box-wide"></div>
+        </el-card>
+      </el-col>
+      <el-col :span="12">
+        <el-card shadow="hover" class="chart-card">
+          <template #header><strong>存储容量概览</strong></template>
+          <div v-if="dsStorageEmpty" class="empty-chart"><el-empty description="暂无存储数据" :image-size="50" /></div>
+          <div v-else ref="dsStorageRef" class="chart-box"></div>
         </el-card>
       </el-col>
     </el-row>
@@ -378,9 +433,10 @@ const router = useRouter()
 // ── 状态 ──
 const stats = reactive({
   switch_count: 0, total_ips: 0, total_macs: 0, subnet_count: 0,
-  vcenter: { vcenter_count: 0, vm_total: 0, vm_powered_on: 0, vm_powered_off: 0, total_cpu_cores: 0, total_memory_gb: 0, per_vcenter: [] },
+  vcenter: { vcenter_count: 0, vm_total: 0, vm_powered_on: 0, vm_powered_off: 0, total_cpu_cores: 0, total_memory_gb: 0, per_vcenter: [], os_distribution: [], cpu_cores_distribution: [], memory_distribution: [], esxi_cpu_types: [], datastore_total_capacity_gb: 0, datastore_total_free_gb: 0 },
   f5: { device_count: 0, vs_count: 0, pool_count: 0, rule_count: 0, app_map_count: 0, pool_member_up: 0, pool_member_down: 0 },
   zdns: { device_count: 0, record_count: 0, domain_map_count: 0, ipv4_count: 0, ipv6_count: 0, internal_count: 0, external_count: 0, record_types: [] },
+  qax: { device_count: 0, server_count: 0, os_distribution: [] },
   asset: { 域名总数: 0, zdns域名: 0, f5域名: 0, 公网服务: 0, 内网服务: 0 },
   scan_by_source: [],
   last_scan_total: 0, last_scan_success: 0, last_scan_failed: 0,
@@ -399,12 +455,24 @@ const f5DonutRef = ref(null)
 const scanBarRef = ref(null)
 const subnetBarRef = ref(null)
 const vcResourceRef = ref(null)
+const qaxOSRef = ref(null)
+const vcOSRef = ref(null)
+const vcCpuRef = ref(null)
+const vcMemRef = ref(null)
+const esxiCpuRef = ref(null)
+const dsStorageRef = ref(null)
 
 const vmDonutEmpty = computed(() => stats.vcenter.vm_total === 0)
 const dnsPieEmpty = computed(() => stats.zdns.record_types.length === 0)
 const f5DonutEmpty = computed(() => (stats.f5.pool_member_up + stats.f5.pool_member_down) === 0)
 const scanBarEmpty = computed(() => stats.scan_by_source.length === 0)
 const vcenterResourceEmpty = computed(() => stats.vcenter.per_vcenter.length === 0)
+const qaxOSEmpty = computed(() => stats.qax.os_distribution.length === 0)
+const vcOSEmpty = computed(() => stats.vcenter.os_distribution.length === 0)
+const vcCpuEmpty = computed(() => stats.vcenter.cpu_cores_distribution.length === 0)
+const vcMemEmpty = computed(() => stats.vcenter.memory_distribution.length === 0)
+const esxiCpuEmpty = computed(() => stats.vcenter.esxi_cpu_types.length === 0)
+const dsStorageEmpty = computed(() => stats.vcenter.datastore_total_capacity_gb === 0)
 
 // ── 子网已占用 IP 对话框 ──
 const occupiedDialogVisible = ref(false)
@@ -503,6 +571,7 @@ async function fetchVMs() {
 
 // ── 图表实例 ──
 let vmDonutChart, dnsPieChart, f5DonutChart, scanBarChart, subnetBarChart, vcResourceChart
+let qaxOSChart, vcOSChart, vcCpuChart, vcMemChart, esxiCpuChart, dsStorageChart
 
 function go(path) {
   router.push(path)
@@ -573,6 +642,12 @@ function renderAllCharts() {
   renderF5Donut()
   renderScanBar()
   renderVcResource()
+  renderQaxOS()
+  renderVcOS()
+  renderVcCpu()
+  renderVcMem()
+  renderEsxiCpu()
+  renderDsStorage()
 }
 
 function renderVmDonut() {
@@ -728,6 +803,133 @@ function renderVcResource() {
   }, { notMerge: true })
 }
 
+function renderQaxOS() {
+  if (qaxOSEmpty.value || !qaxOSRef.value) return
+  if (!qaxOSChart) qaxOSChart = echarts.init(qaxOSRef.value)
+  const data = stats.qax.os_distribution
+  qaxOSChart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: '3%', right: '8%', top: '3%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'value', axisLabel: { fontSize: 10, color: '#94a3b8' }, splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } } },
+    yAxis: { type: 'category', data: data.map(d => d.label).reverse(), axisLabel: { fontSize: 10, color: '#64748b', width: 100, overflow: 'truncate' }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#e2e8f0' } }, inverse: true },
+    series: [{
+      type: 'bar', data: data.map(d => d.count).reverse(),
+      barWidth: 16,
+      itemStyle: {
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: '#6366f1' }, { offset: 1, color: '#a78bfa' }
+        ]),
+        borderRadius: [0, 4, 4, 0],
+      },
+    }],
+  }, { notMerge: true })
+}
+
+function renderVcOS() {
+  if (vcOSEmpty.value || !vcOSRef.value) return
+  if (!vcOSChart) vcOSChart = echarts.init(vcOSRef.value)
+  const data = stats.vcenter.os_distribution
+  vcOSChart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: '3%', right: '8%', top: '3%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'value', axisLabel: { fontSize: 10, color: '#94a3b8' }, splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } } },
+    yAxis: { type: 'category', data: data.map(d => d.label).reverse(), axisLabel: { fontSize: 10, color: '#64748b', width: 110, overflow: 'truncate' }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#e2e8f0' } }, inverse: true },
+    series: [{
+      type: 'bar', data: data.map(d => d.count).reverse(),
+      barWidth: 16,
+      itemStyle: {
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: '#06b6d4' }, { offset: 1, color: '#67e8f9' }
+        ]),
+        borderRadius: [0, 4, 4, 0],
+      },
+    }],
+  }, { notMerge: true })
+}
+
+function renderVcCpu() {
+  if (vcCpuEmpty.value || !vcCpuRef.value) return
+  if (!vcCpuChart) vcCpuChart = echarts.init(vcCpuRef.value)
+  const data = stats.vcenter.cpu_cores_distribution
+  vcCpuChart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: '3%', right: '4%', top: '8%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'category', data: data.map(d => d.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#e2e8f0' } }, axisLabel: { color: '#64748b', fontSize: 11 } },
+    yAxis: { type: 'value', name: '台', nameTextStyle: { fontSize: 10, color: '#94a3b8' }, axisLabel: { fontSize: 10, color: '#94a3b8' }, splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } } },
+    series: [{
+      type: 'bar', data: data.map(d => ({ value: d.count, itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#8b5cf6' }, { offset: 1, color: '#c4b5fd' }]), borderRadius: [6, 6, 0, 0] } })),
+      barWidth: 36,
+    }],
+  }, { notMerge: true })
+}
+
+function renderVcMem() {
+  if (vcMemEmpty.value || !vcMemRef.value) return
+  if (!vcMemChart) vcMemChart = echarts.init(vcMemRef.value)
+  const data = stats.vcenter.memory_distribution
+  vcMemChart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: '3%', right: '4%', top: '8%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'category', data: data.map(d => d.label), axisTick: { show: false }, axisLine: { lineStyle: { color: '#e2e8f0' } }, axisLabel: { color: '#64748b', fontSize: 11 } },
+    yAxis: { type: 'value', name: '台', nameTextStyle: { fontSize: 10, color: '#94a3b8' }, axisLabel: { fontSize: 10, color: '#94a3b8' }, splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } } },
+    series: [{
+      type: 'bar', data: data.map(d => ({ value: d.count, itemStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#f59e0b' }, { offset: 1, color: '#fcd34d' }]), borderRadius: [6, 6, 0, 0] } })),
+      barWidth: 36,
+    }],
+  }, { notMerge: true })
+}
+
+function renderEsxiCpu() {
+  if (esxiCpuEmpty.value || !esxiCpuRef.value) return
+  if (!esxiCpuChart) esxiCpuChart = echarts.init(esxiCpuRef.value)
+  const data = stats.vcenter.esxi_cpu_types
+  esxiCpuChart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: '3%', right: '8%', top: '3%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'value', axisLabel: { fontSize: 10, color: '#94a3b8' }, splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } } },
+    yAxis: { type: 'category', data: data.map(d => d.label).reverse(), axisLabel: { fontSize: 10, color: '#64748b', width: 200, overflow: 'truncate' }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#e2e8f0' } }, inverse: true },
+    series: [{
+      type: 'bar', data: data.map(d => d.count).reverse(),
+      barWidth: 16,
+      itemStyle: {
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: '#8b5cf6' }, { offset: 1, color: '#c4b5fd' }
+        ]),
+        borderRadius: [0, 4, 4, 0],
+      },
+    }],
+  }, { notMerge: true })
+}
+
+function renderDsStorage() {
+  if (dsStorageEmpty.value || !dsStorageRef.value) return
+  if (!dsStorageChart) dsStorageChart = echarts.init(dsStorageRef.value)
+  const total = stats.vcenter.datastore_total_capacity_gb
+  const free = stats.vcenter.datastore_total_free_gb
+  const used = +(total - free).toFixed(1)
+  dsStorageChart.setOption({
+    tooltip: { trigger: 'item', formatter: '{b}: {c} GB ({d}%)' },
+    series: [{
+      type: 'pie', radius: ['55%', '78%'], center: ['50%', '55%'],
+      avoidLabelOverlap: false,
+      itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+      label: { show: false },
+      emphasis: { label: { show: true, fontSize: 14, fontWeight: 'bold' } },
+      data: [
+        { value: used, name: '已用', itemStyle: { color: '#f59e0b' } },
+        { value: +free.toFixed(1), name: '可用', itemStyle: { color: '#10b981' } },
+      ],
+    }],
+    graphic: [{
+      type: 'text', left: 'center', top: '40%',
+      style: { text: total.toFixed(0) + ' GB', textAlign: 'center', fontSize: 18, fontWeight: 700, fill: '#1e293b' },
+    }, {
+      type: 'text', left: 'center', top: '55%',
+      style: { text: '总容量', textAlign: 'center', fontSize: 11, fill: '#94a3b8' },
+    }],
+  }, { notMerge: true })
+}
+
 function disposeCharts() {
   vmDonutChart?.dispose()
   dnsPieChart?.dispose()
@@ -735,6 +937,12 @@ function disposeCharts() {
   scanBarChart?.dispose()
   subnetBarChart?.dispose()
   vcResourceChart?.dispose()
+  qaxOSChart?.dispose()
+  vcOSChart?.dispose()
+  vcCpuChart?.dispose()
+  vcMemChart?.dispose()
+  esxiCpuChart?.dispose()
+  dsStorageChart?.dispose()
 }
 
 onMounted(() => {
@@ -774,7 +982,10 @@ onBeforeUnmount(() => {
 .chart-row { margin-bottom: 16px; }
 .chart-card { height: 100%; }
 .chart-box { height: 240px; }
+.chart-box-wide { height: 320px; }
 .chart-container { height: 350px; }
+.stat-flex-row { display: flex; gap: 16px; }
+.stat-flex-row > .stat-card { flex: 1; }
 .empty-chart { display: flex; justify-content: center; padding: 16px 0; }
 
 .card-header { display: flex; justify-content: space-between; align-items: center; }

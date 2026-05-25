@@ -6,9 +6,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.vcenter import VCenter
 from app.models.vm_inventory import VMInventory
+from app.models.esxi_host import EsxiHost
+from app.models.datastore import Datastore
 from app.schemas.vcenter import (
     VCenterCreate, VCenterUpdate, VCenterOut,
     VCenterTestRequest, VCenterTestResponse, VMInventoryOut,
+    EsxiHostOut, DatastoreOut,
 )
 from app.schemas.scan import PaginatedResponse
 from app.api.deps import get_current_user, require_admin
@@ -416,3 +419,33 @@ def vm_filter_options(
         "networks": networks,
         "folders": folders,
     }
+
+
+# ─── ESXi 主机清单 ───
+
+@router.get("/{vcenter_id}/hosts")
+def list_vcenter_hosts(
+    vcenter_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    vc = db.query(VCenter).get(vcenter_id)
+    if not vc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="vCenter 不存在")
+    hosts = db.query(EsxiHost).filter(EsxiHost.vcenter_id == vcenter_id).order_by(EsxiHost.host_name).all()
+    return {"items": [EsxiHostOut.model_validate(h) for h in hosts], "total": len(hosts)}
+
+
+# ─── 存储器清单 ───
+
+@router.get("/{vcenter_id}/datastores")
+def list_vcenter_datastores(
+    vcenter_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    vc = db.query(VCenter).get(vcenter_id)
+    if not vc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="vCenter 不存在")
+    datastores = db.query(Datastore).filter(Datastore.vcenter_id == vcenter_id).order_by(Datastore.datastore_name).all()
+    return {"items": [DatastoreOut.model_validate(ds) for ds in datastores], "total": len(datastores)}
