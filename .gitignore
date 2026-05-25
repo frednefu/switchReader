@@ -36,5 +36,12 @@ backend/*.pyc
 # Database files (local dev)
 *.db
 
-# switchReader
+# switchReader (SNMP engine — only keep switchReader.py + config.example.json)
 switchReader/__pycache__/
+switchReader/.idea/
+switchReader/*.xlsx
+switchReader/config.json
+switchReader/*_test.py
+
+# Test tools
+tools/
