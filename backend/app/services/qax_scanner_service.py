@@ -192,6 +192,11 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
                 return
 
             device_name = device.name
+            # 在 commit 前提取连接参数（commit 会过期所有属性，close 后无法 refresh）
+            device_host = device.host
+            device_uuid = device.uuid
+            device_secret = device.secret
+
             device.last_scan_status = "running"
             device.last_scan_error = None
             db.commit()
@@ -206,7 +211,7 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
             db.close()
 
         # 阶段 1：通过 API 获取服务器列表（不持有 DB 会话）
-        client = QianXinClient(device.host, device.uuid, device.secret)
+        client = QianXinClient(device_host, device_uuid, device_secret)
         loop = asyncio.get_running_loop()
         logger.info("椒图扫描阶段1开始 device=%s 获取服务器列表...", device_name)
         servers = await loop.run_in_executor(None, client.get_all_servers)
