@@ -576,7 +576,8 @@ async def trigger_f5_scan(device: F5Device, triggered_by: str = "manual") -> int
         scan_log_id = scan_log.id
     finally:
         db.close()
-    asyncio.create_task(_run_f5_scan_async(device.id, scan_log_id))
+    from app.tasks.scan_tasks import scan_f5_task
+    scan_f5_task.delay(device.id, scan_log_id)
     return scan_log_id
 
 

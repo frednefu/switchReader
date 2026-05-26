@@ -204,6 +204,11 @@ async def trigger_switch_scan(
         db.commit()
 
     scan_log_id = await trigger_scan(sw, TriggerType.manual)
+
+    # trigger_scan 在独立 session 中创建 scan_log 并提交 Celery 任务。
+    # 由于 MySQL REPEATABLE READ 隔离级别，当前 session 需要结束隐式事务
+    # 才能看到其他 session 提交的数据。这里显式 commit 后再查询。
+    db.commit()
     scan_log = db.query(ScanLog).get(scan_log_id)
     return ScanLogOut.model_validate(scan_log)
 

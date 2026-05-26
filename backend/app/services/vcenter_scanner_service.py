@@ -659,7 +659,8 @@ async def trigger_vcenter_scan(vcenter: VCenter, triggered_by: str = "manual") -
         scan_log_id = scan_log.id
     finally:
         db.close()
-    asyncio.create_task(_run_vcenter_scan_async(vcenter.id, scan_log_id))
+    from app.tasks.scan_tasks import scan_vcenter_task
+    scan_vcenter_task.delay(vcenter.id, scan_log_id)
     return scan_log_id
 
 

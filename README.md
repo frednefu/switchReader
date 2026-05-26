@@ -8,7 +8,7 @@
 - **跨源关系融合** — 以 MAC/IP/域名 为纽带自动关联五源数据，构建"物理端口 → 虚拟机 → 业务负载 → 域名 → 主机进程"的完整资产画像
 - **字段级变更追踪** — 每数据源独立复合键，增量 diff 记录新增/删除/修改，JSON change_detail 保存字段级新旧值对比，支持历史回查
 - **智能可视化分析** — 全局仪表盘多维度统计（ESXi CPU 类型/存储类型/OS 分布/扫描成功率），地址段利用率图表，点击下探明细，全局搜索联动
-- **弹性定时调度** — APScheduler 后台独立调度每种数据源，按设备配置的扫描间隔自动触发，意外中断自动恢复
+- **弹性异步任务队列** — Celery + Redis 异步任务队列，APScheduler 按设备独立调度提交任务，Worker 线程池并发执行，意外中断自动恢复
 
 ### 技术栈
 
@@ -17,6 +17,7 @@
 | 后端框架 | FastAPI (Python 3.10+) |
 | ORM | SQLAlchemy 2.0 |
 | 数据库 | MySQL 8.0 / SQLite (开发) |
+| 异步队列 | Celery 5.6 + Redis |
 | SNMP | pysnmp 7.1+ (Slim API，支持标准 MIB + 华为私有 MIB) |
 | vCenter | pyVmomi 9.1+ (VMware vSphere SDK) |
 | F5 | iControl REST API (HTTPS + Basic Auth) |
@@ -53,30 +54,63 @@
 ### 快速开始
 
 ```bash
-# 1. 启动全部服务
-docker-compose up -d
+# 1. 启动 MySQL + Redis
+docker-compose -f docker-compose.local.yml up -d
 
-# 2. 初始化种子数据
-docker-compose exec backend python seed.py
+# 2. 后端
+cd backend
+cp .env.example .env         # 编辑数据库连接
+pip install -r requirements.txt
+python seed.py
+uvicorn app.main:app --host 0.0.0.0 --port 8000 &
 
-# 3. 访问
-# 前端: http://localhost
+# 3. Celery Worker（必须单独启动，Windows 使用 threads 池）
+celery -A app.tasks.celery_app worker --pool=threads --concurrency=8 --loglevel=info &
+
+# 4. 前端
+cd frontend
+npm install
+npm run dev
+
+# 5. 访问
+# 前端: http://localhost:5173
 # API 文档: http://localhost:8000/docs
 ```
 
 默认账号：`admin` / `Admin123!`、`viewer` / `Viewer123!`
 
+#### 生产部署
+
+```bash
+# 启动全部服务（MySQL + Redis + Backend + Frontend + Celery Worker）
+docker-compose up -d
+
+# 初始化种子数据
+docker-compose exec backend python seed.py
+
+# 访问
+# 前端: http://localhost
+# API 文档: http://localhost:8000/docs
+```
+
 #### 本地开发
 
 ```bash
-# 后端 (SQLite)
+# 基础服务（MySQL + Redis）
+docker-compose -f docker-compose.local.yml up -d
+
+# 后端
 cd backend
-cp .env.example .env  # 编辑 DATABASE_URL=sqlite:///./omniview.db
+cp .env.example .env
 pip install -r requirements.txt
 python seed.py
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --port 8000
 
-# 前端
+# Celery Worker（另开终端）
+cd backend
+celery -A app.tasks.celery_app worker --pool=threads --concurrency=8 --loglevel=info
+
+# 前端（另开终端）
 cd frontend
 npm install
 npm run dev
@@ -95,6 +129,7 @@ npm run dev
 │   │   ├── schemas/             # Pydantic 请求/响应
 │   │   ├── api/                 # auth, switches, results, history, scan_logs, dashboard, subnets, search, users, vcenters, f5, zdns, qax, asset_profile
 │   │   ├── services/            # scanner, history, scheduler, vcenter_scanner, f5_scanner, zdns_scanner, zdns_ip_scanner, qax_scanner, asset_profile, subnet
+│   │   ├── tasks/               # Celery 异步任务（celery_app, scan_tasks）
 │   │   └── utils/               # security (JWT, bcrypt)
 │   ├── seed.py                  # 默认用户初始化
 │   └── requirements.txt

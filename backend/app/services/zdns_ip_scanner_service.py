@@ -187,5 +187,6 @@ async def trigger_zdns_ip_scan(device: ZDNSDevice, triggered_by: str = "manual")
         scan_log_id = scan_log.id
     finally:
         db.close()
-    asyncio.create_task(_run_zdns_ip_scan_async(device.id, scan_log_id))
+    from app.tasks.scan_tasks import scan_zdns_ip_task
+    scan_zdns_ip_task.delay(device.id, scan_log_id)
     return scan_log_id

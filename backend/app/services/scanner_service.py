@@ -228,7 +228,8 @@ async def trigger_scan(switch: Switch, triggered_by: TriggerType) -> int:
     finally:
         db.close()
 
-    asyncio.create_task(_run_scan_async(switch, scan_log_id))
+    from app.tasks.scan_tasks import scan_switch_task
+    scan_switch_task.delay(switch.id, scan_log_id)
     return scan_log_id
 
 

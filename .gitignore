@@ -32,6 +32,7 @@ frontend/dist/
 backend/__pycache__/
 backend/app/__pycache__/
 backend/*.pyc
+backend/*TEMP*
 
 # Database files (local dev)
 *.db

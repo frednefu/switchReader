@@ -513,21 +513,9 @@ async def trigger_qax_scan(device: QianXinDevice, triggered_by: str = "manual") 
     finally:
         db.close()
 
-    task = asyncio.create_task(_run_qax_scan_async(device.id, scan_log_id))
-    task.add_done_callback(_on_scan_task_done)
+    from app.tasks.scan_tasks import scan_qax_task
+    scan_qax_task.delay(device.id, scan_log_id)
     return scan_log_id
-
-
-def _on_scan_task_done(task: asyncio.Task):
-    """后台扫描任务完成回调，用于捕获未处理异常。"""
-    try:
-        exc = task.exception()
-        if exc:
-            logger.error("椒图后台扫描任务异常终止: %s", exc, exc_info=exc)
-        else:
-            logger.info("椒图后台扫描任务正常完成")
-    except asyncio.CancelledError:
-        logger.warning("椒图后台扫描任务被取消")
 
 
 async def test_qax_connection(host: str, uuid: str, secret: str) -> dict:

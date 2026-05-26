@@ -1,5 +1,4 @@
 """APScheduler 定时扫描调度器。"""
-import asyncio
 import logging
 from datetime import datetime
 
@@ -13,12 +12,6 @@ from app.models.vcenter import VCenter
 from app.models.f5 import F5Device
 from app.models.zdns import ZDNSDevice
 from app.models.qax import QianXinDevice
-from app.services.scanner_service import _run_scan_async
-from app.services.vcenter_scanner_service import _run_vcenter_scan_async
-from app.services.f5_scanner_service import _run_f5_scan_async
-from app.services.zdns_scanner_service import _run_zdns_scan_async
-from app.services.zdns_ip_scanner_service import _run_zdns_ip_scan_async
-from app.services.qax_scanner_service import _run_qax_scan_async
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +78,6 @@ def _scan_job(switch_id: int):
             db.commit()
 
         scan_log_id = _create_scan_log(db, "switch", switch_id, sw.name)
-        sw_obj = sw  # 保留引用，session 关闭后仍可访问属性
     except Exception:
         logger.exception("定时扫描准备失败 switch_id=%s", switch_id)
         return
@@ -93,9 +85,10 @@ def _scan_job(switch_id: int):
         db.close()
 
     try:
-        asyncio.run(_run_scan_async(sw_obj, scan_log_id))
+        from app.tasks.scan_tasks import scan_switch_task
+        scan_switch_task.delay(switch_id, scan_log_id)
     except Exception:
-        logger.exception("定时扫描失败 switch_id=%s", switch_id)
+        logger.exception("定时扫描提交失败 switch_id=%s", switch_id)
 
 
 def _vcenter_scan_job(vcenter_id: int):
@@ -118,9 +111,10 @@ def _vcenter_scan_job(vcenter_id: int):
         db.close()
 
     try:
-        asyncio.run(_run_vcenter_scan_async(vcenter_id, scan_log_id))
+        from app.tasks.scan_tasks import scan_vcenter_task
+        scan_vcenter_task.delay(vcenter_id, scan_log_id)
     except Exception:
-        logger.exception("vCenter 定时扫描失败 vcenter_id=%s", vcenter_id)
+        logger.exception("vCenter 定时扫描提交失败 vcenter_id=%s", vcenter_id)
 
 
 def start_scheduler():
@@ -223,9 +217,10 @@ def _f5_scan_job(f5_device_id: int):
         db.close()
 
     try:
-        asyncio.run(_run_f5_scan_async(f5_device_id, scan_log_id))
+        from app.tasks.scan_tasks import scan_f5_task
+        scan_f5_task.delay(f5_device_id, scan_log_id)
     except Exception:
-        logger.exception("F5 定时扫描失败 f5_device_id=%s", f5_device_id)
+        logger.exception("F5 定时扫描提交失败 f5_device_id=%s", f5_device_id)
 
 
 def refresh_f5_job(f5_device_id: int, scan_interval: int):
@@ -269,9 +264,10 @@ def _zdns_scan_job(zdns_device_id: int):
         db.close()
 
     try:
-        asyncio.run(_run_zdns_scan_async(zdns_device_id, scan_log_id))
+        from app.tasks.scan_tasks import scan_zdns_task
+        scan_zdns_task.delay(zdns_device_id, scan_log_id)
     except Exception:
-        logger.exception("ZDNS 定时扫描失败 zdns_device_id=%s", zdns_device_id)
+        logger.exception("ZDNS 定时扫描提交失败 zdns_device_id=%s", zdns_device_id)
 
 
 def refresh_zdns_job(zdns_device_id: int, scan_interval: int):
@@ -315,9 +311,10 @@ def _zdns_ip_scan_job(zdns_device_id: int):
         db.close()
 
     try:
-        asyncio.run(_run_zdns_ip_scan_async(zdns_device_id, scan_log_id))
+        from app.tasks.scan_tasks import scan_zdns_ip_task
+        scan_zdns_ip_task.delay(zdns_device_id, scan_log_id)
     except Exception:
-        logger.exception("ZDNS IP 扫描失败 zdns_device_id=%s", zdns_device_id)
+        logger.exception("ZDNS IP 扫描提交失败 zdns_device_id=%s", zdns_device_id)
 
 
 def refresh_zdns_ip_job(zdns_device_id: int, ip_scan_interval: int):
@@ -365,9 +362,10 @@ def _qax_scan_job(device_id: int):
         db.close()
 
     try:
-        asyncio.run(_run_qax_scan_async(device_id, scan_log_id))
+        from app.tasks.scan_tasks import scan_qax_task
+        scan_qax_task.delay(device_id, scan_log_id)
     except Exception:
-        logger.exception("椒图定时扫描失败 device_id=%s", device_id)
+        logger.exception("椒图定时扫描提交失败 device_id=%s", device_id)
 
 
 def refresh_qax_job(device_id: int, scan_interval: int):
