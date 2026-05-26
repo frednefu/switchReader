@@ -18,6 +18,23 @@ class AssetProfileRow(BaseModel):
     网络: str = ""
     VLAN: str = ""
     文件夹: str = ""
+    is_pseudo: bool = False
+    # F5 关联信息
+    f5_vs_name: str = ""
+    f5_pool_name: str = ""
+    f5_rule_name: str = ""
+    f5_rules_text: str = ""
+    # vCenter 宿主机
+    esxi_host: str = ""
+    # 椒图匹配信息
+    qax_machine_name: str = ""
+    qax_os: str = ""
+    qax_kernel: str = ""
+    qax_cpu: str = ""
+    qax_memory: str = ""
+    qax_disk: str = ""
+    qax_group: str = ""
+    qax_online_status: str = ""
 
 
 class AssetProfileStats(BaseModel):

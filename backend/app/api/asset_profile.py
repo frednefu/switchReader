@@ -25,7 +25,7 @@ def _get_cached_profile(db: Session) -> list[dict]:
 @router.get("", response_model=AssetProfileResponse)
 def get_asset_profile(
     page: int = Query(1, ge=1),
-    size: int = Query(50, ge=1, le=10000),
+    size: int = Query(50, ge=1, le=200000),
     search: str = Query("", description="全局搜索（匹配所有字段）"),
     sort_by: str = Query("", description="排序字段名（如：公网IP、虚拟机名称 等）"),
     sort_dir: str = Query("asc", pattern="^(asc|desc)$"),
@@ -69,6 +69,12 @@ def export_asset_profile(
         rows, search=search, status=status, network=network, source=source,
         page=1, size=100000,
     )
-    headers = ["域名", "来源", "公网IP", "端口", "内网服务IP", "内网端口", "状态", "虚拟机名称", "IP地址", "MAC地址", "网络", "VLAN", "文件夹"]
-    xls_rows = [[r.get(h, "") for h in headers] for r in filtered["rows"]]
+    headers = ["域名", "来源", "公网IP", "端口", "内网服务IP", "内网端口", "状态", "虚拟机名称", "IP地址", "MAC地址", "网络", "VLAN", "文件夹", "ESXi主机", "F5_VS", "F5_Pool", "F5_Rule", "椒图主机", "椒图OS", "椒图内核", "椒图CPU", "椒图内存", "椒图磁盘", "椒图分组", "椒图状态"]
+    header_key_map = {
+        "ESXi主机": "esxi_host", "F5_VS": "f5_vs_name", "F5_Pool": "f5_pool_name",
+        "F5_Rule": "f5_rule_name", "椒图主机": "qax_machine_name", "椒图OS": "qax_os",
+        "椒图内核": "qax_kernel", "椒图CPU": "qax_cpu", "椒图内存": "qax_memory",
+        "椒图磁盘": "qax_disk", "椒图分组": "qax_group", "椒图状态": "qax_online_status",
+    }
+    xls_rows = [[r.get(header_key_map.get(h, h), "") for h in headers] for r in filtered["rows"]]
     return export_to_excel(headers, xls_rows, "asset_profile.xlsx", sheet_title="资产画像")

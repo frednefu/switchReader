@@ -11,6 +11,7 @@
   - MAC地址：vCenter MAC 优先，为空则用交换机查到的 MAC
 """
 
+import json
 import logging
 from collections import defaultdict
 from sqlalchemy.orm import Session
@@ -19,6 +20,7 @@ from app.models.zdns import ZDNSDomainMap
 from app.models.f5 import F5VirtualServer, F5ApplicationMap
 from app.models.vm_inventory import VMInventory
 from app.models.scan_result import ScanResult
+from app.models.qax import QianXinServer
 
 logger = logging.getLogger(__name__)
 
@@ -132,8 +134,20 @@ def build_asset_profile(db: Session) -> list[dict]:
         all_public_ips.update(ips)
 
     # ═══════════════════════════════════════════════════════════════
-    # 3. F5 VS 数据：公网IP → [(vs_port, pool_name, vs_name)]
+    # 3. F5 VS 数据：公网IP → [(vs_port, pool_name, vs_name, rules)]
     # ═══════════════════════════════════════════════════════════════
+    def _parse_rules(raw_rules: str) -> str:
+        """解析 F5 VS 的 rules JSON 字段，返回逗号分隔的规则名。"""
+        if not raw_rules:
+            return ""
+        try:
+            parsed = json.loads(raw_rules)
+            if isinstance(parsed, list):
+                return ", ".join(str(r) for r in parsed if r)
+            return ""
+        except (json.JSONDecodeError, TypeError):
+            return ""
+
     f5_vs_list = db.query(F5VirtualServer).all()
     vs_by_ip: dict[str, list[dict]] = defaultdict(list)
     for vs in f5_vs_list:
@@ -142,6 +156,7 @@ def build_asset_profile(db: Session) -> list[dict]:
                 "vs_port": vs.vs_port,
                 "pool_name": vs.pool_name,
                 "vs_name": vs.name,
+                "rules_text": _parse_rules(vs.rules or ""),
             })
 
     # ═══════════════════════════════════════════════════════════════
@@ -159,6 +174,9 @@ def build_asset_profile(db: Session) -> list[dict]:
                 "member_port": am.member_port,
                 "member_state": am.member_state,
                 "domain_name": am.domain_name,
+                "vs_name": am.vs_name,
+                "pool_name": am.pool_name,
+                "rule_name": am.rule_name,
             })
 
     # ═══════════════════════════════════════════════════════════════
@@ -178,6 +196,7 @@ def build_asset_profile(db: Session) -> list[dict]:
             "network_name": vm.network_name,
             "vlan_id": vm.vlan_id,
             "vm_folder": vm.vm_folder,
+            "esxi_host": vm.esxi_host,
         }
         for ip in _split_csv(vm.ip_address):
             vm_by_ip[ip].append(vm_info)
@@ -197,8 +216,39 @@ def build_asset_profile(db: Session) -> list[dict]:
             switch_ip_to_mac[ip].append(mac)
 
     # ═══════════════════════════════════════════════════════════════
+    # 6.5. 椒图服务器 IP 索引
+    # ═══════════════════════════════════════════════════════════════
+    qax_servers = db.query(QianXinServer).all()
+    qax_by_ip: dict[str, dict] = {}
+    for qs in qax_servers:
+        info = {
+            "machine_name": qs.machine_name,
+            "os": qs.operation_system,
+            "kernel": qs.kernel_version,
+            "cpu": qs.cpu,
+            "memory": qs.memory,
+            "disk": qs.disk_size_str,
+            "group": qs.machine_group,
+            "online": "在线" if (qs.online_status == 1 and qs.run_status == 1) else (
+                "Agent停" if qs.online_status == 1 else "离线"
+            ),
+        }
+        for ip in _split_csv(qs.ipv4):
+            if ip and ip not in qax_by_ip:
+                qax_by_ip[ip] = info
+        for ip in _split_csv(qs.intranet_ip):
+            if ip and ip not in qax_by_ip:
+                qax_by_ip[ip] = info
+
+    # ═══════════════════════════════════════════════════════════════
     # 7. 辅助：构建单行数据
     # ═══════════════════════════════════════════════════════════════
+    def _find_qax(ip: str) -> dict | None:
+        """按 IP 查找椒图服务器信息。"""
+        if not ip:
+            return None
+        return qax_by_ip.get(ip) or qax_by_ip.get(ip.split(":")[0])
+
     def _make_row(
         domain: str, pub_ip: str, port: str,
         internal_ip: str, internal_port: str,
@@ -206,19 +256,46 @@ def build_asset_profile(db: Session) -> list[dict]:
         fallback_ip_for_mac: str = "",
         member_state: str = "",
         source: str = "",
+        f5_vs_name: str = "",
+        f5_pool_name: str = "",
+        f5_rule_name: str = "",
+        f5_rules_text: str = "",
     ) -> dict:
         """构建一行资产数据。vm 为 None 时 VM 相关字段为空。"""
-        # VS 伪域名（pool 模式无法对应真实域名）→ 显示"不确定"
-        display_domain = "不确定" if domain in vs_pseudo_domains else domain
+        # VS 伪域名（pool 模式无法对应真实域名）→ 保留原名 + 标记 is_pseudo
+        is_pseudo = domain in vs_pseudo_domains
+
+        # 椒图匹配（按内网 IP 或 VM IP）
+        qax_ip = internal_ip or pub_ip
+        qax = _find_qax(qax_ip) if qax_ip else None
+
+        base = {
+            "域名": domain,
+            "来源": source,
+            "公网IP": pub_ip,
+            "端口": port,
+            "内网服务IP": internal_ip,
+            "内网端口": internal_port,
+            "状态": member_state,
+            "is_pseudo": is_pseudo,
+            "f5_vs_name": f5_vs_name,
+            "f5_pool_name": f5_pool_name,
+            "f5_rule_name": f5_rule_name,
+            "f5_rules_text": f5_rules_text,
+            "esxi_host": vm["esxi_host"] if vm else "",
+            "qax_machine_name": qax["machine_name"] if qax else "",
+            "qax_os": qax["os"] if qax else "",
+            "qax_kernel": qax["kernel"] if qax else "",
+            "qax_cpu": qax["cpu"] if qax else "",
+            "qax_memory": qax["memory"] if qax else "",
+            "qax_disk": qax["disk"] if qax else "",
+            "qax_group": qax["group"] if qax else "",
+            "qax_online_status": qax["online"] if qax else "",
+        }
+
         if vm is None:
             return {
-                "域名": display_domain,
-                "来源": source,
-                "公网IP": pub_ip,
-                "端口": port,
-                "内网服务IP": internal_ip,
-                "内网端口": internal_port,
-                "状态": member_state,
+                **base,
                 "虚拟机名称": "",
                 "IP地址": internal_ip,
                 "MAC地址": "",
@@ -233,13 +310,7 @@ def build_asset_profile(db: Session) -> list[dict]:
             sw_macs = switch_ip_to_mac.get(fallback_ip_for_mac, [])
             vm_mac = ", ".join(sw_macs) if sw_macs else ""
         return {
-            "域名": display_domain,
-            "来源": source,
-            "公网IP": pub_ip,
-            "端口": port,
-            "内网服务IP": internal_ip,
-            "内网端口": internal_port,
-            "状态": member_state,
+            **base,
             "虚拟机名称": vm["vm_name"],
             "IP地址": vm_ip,
             "MAC地址": vm_mac,
@@ -249,7 +320,16 @@ def build_asset_profile(db: Session) -> list[dict]:
         }
 
     def _dedup_key(row: dict) -> tuple:
-        return tuple(str(v) for v in row.values())
+        """基于核心关联字段去重（忽略辅助展示字段）。"""
+        return (
+            row.get("域名", ""), row.get("来源", ""),
+            row.get("公网IP", ""), row.get("端口", ""),
+            row.get("内网服务IP", ""), row.get("内网端口", ""),
+            row.get("虚拟机名称", ""), row.get("IP地址", ""),
+            row.get("MAC地址", ""), row.get("网络", ""),
+            row.get("VLAN", ""), row.get("文件夹", ""),
+            str(row.get("is_pseudo", False)),
+        )
 
     # ═══════════════════════════════════════════════════════════════
     # 8. 组装行数据
@@ -262,6 +342,10 @@ def build_asset_profile(db: Session) -> list[dict]:
         domain_val = args[0] if args else kwargs.get("domain", "")
         vm = args[5] if len(args) > 5 and args[5] is not None else None
         fallback_ip = kwargs.get("fallback_ip_for_mac", "")
+        # args[1]=pub_ip, args[3]=internal_ip（均为位置参数）
+        _pub_ip = args[1] if len(args) > 1 else ""
+        _internal_ip = args[3] if len(args) > 3 else ""
+        qax_ip = _internal_ip or _pub_ip
 
         src_parts = []
         if domain_val in zdns_domain_set:
@@ -272,6 +356,11 @@ def build_asset_profile(db: Session) -> list[dict]:
             src_parts.append("vCenter")
         if fallback_ip and switch_ip_to_mac.get(fallback_ip):
             src_parts.append("Switch")
+        # 椒图匹配：检查是否有椒图数据对应
+        if qax_ip:
+            qax_info = _find_qax(qax_ip)
+            if qax_info:
+                src_parts.append("椒图")
 
         kwargs["source"] = ",".join(src_parts)
         row = _make_row(*args, **kwargs)
@@ -304,21 +393,23 @@ def build_asset_profile(db: Session) -> list[dict]:
                 vs_port_str = str(vs_port) if vs_port is not None else ""
                 pool_name = vs["pool_name"]
 
-                # 仅从 application_map 获取按域名过滤的成员，不 fallback 到 pool
-                # pool 模式无法确定域名→成员归属，避免跨域数据污染
-                members = [
-                    m for m in members_by_vs.get((pub_ip, vs_port), [])
-                    if m["domain_name"] == domain
-                ]
+                # 优先按域名过滤成员（rules 模式，domain_name = 真实域名）
+                all_vs_members = members_by_vs.get((pub_ip, vs_port), [])
+                members = [m for m in all_vs_members if m["domain_name"] == domain]
+
+                if not members and vs.get("pool_name"):
+                    # Pool 模式：按 VS 的 pool_name 精准匹配，避免跨 pool 污染
+                    members = [m for m in all_vs_members if m.get("pool_name") == vs["pool_name"]]
 
                 if not members:
-                    # 有 VS 但无成员：尝试用 VS IP 查 VM
+                    # 无匹配成员（rules 和 pool 均未命中）：尝试用 VS IP 查 VM
                     matched_vms = _find_vms_by_ip(pub_ip, vm_by_ip, vm_by_mac, switch_ip_to_mac)
+                    f5_kw = {"f5_vs_name": vs["vs_name"], "f5_pool_name": vs.get("pool_name", ""), "f5_rules_text": vs.get("rules_text", "")}
                     if not matched_vms:
-                        _emit_row(domain, pub_ip, vs_port_str, "", "", None)
+                        _emit_row(domain, pub_ip, vs_port_str, "", "", None, **f5_kw)
                     else:
                         for vm in matched_vms:
-                            _emit_row(domain, pub_ip, vs_port_str, pub_ip, "", vm, fallback_ip_for_mac=pub_ip)
+                            _emit_row(domain, pub_ip, vs_port_str, pub_ip, "", vm, fallback_ip_for_mac=pub_ip, **f5_kw)
                     continue
 
                 for member in members:
@@ -327,17 +418,24 @@ def build_asset_profile(db: Session) -> list[dict]:
                     member_port_str = str(member_port) if member_port is not None else ""
 
                     member_state = member.get("member_state", "")
+                    # F5 信息：优先用 ApplicationMap 的，fallback 到 VS 的
+                    f5_kw = {
+                        "f5_vs_name": member.get("vs_name") or vs["vs_name"],
+                        "f5_pool_name": member.get("pool_name") or vs.get("pool_name", ""),
+                        "f5_rule_name": member.get("rule_name", ""),
+                        "f5_rules_text": vs.get("rules_text", ""),
+                    }
 
                     if not member_ip:
-                        _emit_row(domain, pub_ip, vs_port_str, "", member_port_str, None, member_state=member_state)
+                        _emit_row(domain, pub_ip, vs_port_str, "", member_port_str, None, member_state=member_state, **f5_kw)
                         continue
 
                     matched_vms = _find_vms_by_ip(member_ip, vm_by_ip, vm_by_mac, switch_ip_to_mac)
                     if not matched_vms:
-                        _emit_row(domain, pub_ip, vs_port_str, member_ip, member_port_str, None, member_state=member_state)
+                        _emit_row(domain, pub_ip, vs_port_str, member_ip, member_port_str, None, member_state=member_state, **f5_kw)
                     else:
                         for vm in matched_vms:
-                            _emit_row(domain, pub_ip, vs_port_str, member_ip, member_port_str, vm, fallback_ip_for_mac=member_ip, member_state=member_state)
+                            _emit_row(domain, pub_ip, vs_port_str, member_ip, member_port_str, vm, fallback_ip_for_mac=member_ip, member_state=member_state, **f5_kw)
 
     return rows
 
@@ -352,7 +450,7 @@ def compute_stats(rows: list[dict]) -> dict:
     folders = set()
 
     for r in rows:
-        if r["域名"] and r["域名"] != "不确定":
+        if r["域名"] and not r.get("is_pseudo"):
             domains.add(r["域名"])
         if r["公网IP"]:
             pub_key = (r["公网IP"], r["端口"]) if r["端口"] else (r["公网IP"],)
