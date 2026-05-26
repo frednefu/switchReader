@@ -41,12 +41,14 @@ Frontend ──► FastAPI ──► MySQL 8.0
 
 ### Phase A: MySQL 数据库切换 ✅
 
-> **已提交** `ffb403f`
+> **已提交** `ffb403f` → `b4d4770`（含适配修复）
 
 - 移除 SQLite 特定代码（WAL PRAGMA、check_same_thread、connect 事件监听）
-- 迁移函数改用 SQLAlchemy inspect（兼容 MySQL）
+- 迁移函数改用 SQLAlchemy inspect（兼容 MySQL + SQLite）
 - MySQL utf8mb4 字符集配置
 - 创建 `.env.example` 模板
+- 修复 `vm_inventory` 表索引键过长问题（String(1024) → String(255)，MySQL utf8mb4 索引限制 3072 字节）
+- 本地开发模式：`docker-compose.local.yml`（仅 MySQL + Redis 容器，前后端本地运行）
 
 ---
 

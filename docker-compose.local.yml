@@ -1,0 +1,41 @@
+# 本地开发模式：仅启动 MySQL + Redis 容器
+# 前后端在宿主机本地运行，方便修改和迭代
+#
+# 启动: docker-compose -f docker-compose.local.yml up -d
+# 停止: docker-compose -f docker-compose.local.yml down
+
+services:
+  mysql:
+    image: mysql:8.0.40
+    container_name: omniview-mysql
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ipam
+      MYSQL_USER: ipam
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:alpine
+    container_name: omniview-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:
