@@ -28,6 +28,14 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     _migrate_columns("vm_inventory", [("provisioned_gb", "FLOAT"), ("used_gb", "FLOAT")])
     _migrate_columns("datastores", [("mounted_host_count", "INTEGER DEFAULT 0"), ("storage_type", "VARCHAR(16) DEFAULT ''")])
+    _migrate_columns("switches", [
+        ("last_scan_status", "VARCHAR(16)"),
+        ("last_scan_time", "DATETIME"),
+        ("last_scan_duration", "FLOAT"),
+        ("last_hosts_found", "INTEGER DEFAULT 0"),
+        ("last_routes_found", "INTEGER DEFAULT 0"),
+        ("last_scan_error", "TEXT"),
+    ])
     start_scheduler()
     yield
     shutdown_scheduler()

@@ -69,6 +69,11 @@ def _scan_job(switch_id: int):
         if not sw or not sw.is_active:
             return
 
+        # 重置卡住的 running 状态
+        if sw.last_scan_status == "running":
+            sw.last_scan_status = "failed"
+            sw.last_scan_error = "上次扫描意外中断，已自动重置"
+
         running = db.query(ScanLog).filter(
             ScanLog.source_type == "switch",
             ScanLog.source_id == switch_id,

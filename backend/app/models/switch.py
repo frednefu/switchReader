@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, Enum, DateTime, ForeignKey, func
+from sqlalchemy import Column, Integer, String, Boolean, Enum, DateTime, ForeignKey, Float, Text, func
 from sqlalchemy.orm import relationship
 from app.database import Base
 import enum
@@ -25,6 +25,14 @@ class Switch(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # 扫描状态（持久化，与其他数据源一致）
+    last_scan_status = Column(String(16), nullable=True)
+    last_scan_time = Column(DateTime, nullable=True)
+    last_scan_duration = Column(Float, nullable=True)
+    last_hosts_found = Column(Integer, nullable=False, default=0)
+    last_routes_found = Column(Integer, nullable=False, default=0)
+    last_scan_error = Column(Text, nullable=True)
 
     scan_results = relationship("ScanResult", back_populates="switch", cascade="all, delete-orphan")
     route_tables = relationship("RouteTable", back_populates="switch", cascade="all, delete-orphan")

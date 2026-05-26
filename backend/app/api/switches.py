@@ -21,46 +21,6 @@ from app.services.scheduler_service import refresh_job
 router = APIRouter(prefix="/switches", tags=["交换机"])
 
 
-def _latest_scan_subquery(db: Session):
-    """Subquery: for each switch_id, get the latest completed scan_log id."""
-    return (
-        db.query(
-            ScanLog.switch_id,
-            func.max(ScanLog.id).label("max_id"),
-        )
-        .filter(ScanLog.status != ScanStatus.running)
-        .group_by(ScanLog.switch_id)
-        .subquery()
-    )
-
-
-def _enrich_with_scan_info(db: Session, switches: list) -> list[dict]:
-    """Add last_scan_status, last_hosts_found, last_routes_found to switch dicts."""
-    if not switches:
-        return []
-    switch_ids = [s.id for s in switches]
-    sub = _latest_scan_subquery(db)
-    rows = (
-        db.query(ScanLog)
-        .join(sub, ScanLog.id == sub.c.max_id)
-        .filter(ScanLog.switch_id.in_(switch_ids))
-        .all()
-    )
-    scan_map = {r.switch_id: r for r in rows}
-    result = []
-    for s in switches:
-        d = SwitchOut.model_validate(s).model_dump()
-        latest = scan_map.get(s.id)
-        if latest:
-            d["last_scan_status"] = latest.status.value if hasattr(latest.status, 'value') else latest.status
-            d["last_hosts_found"] = latest.hosts_found or 0
-            d["last_routes_found"] = latest.routes_found or 0
-            d["last_scan_time"] = latest.completed_at
-            d["last_scan_duration"] = latest.duration_seconds
-        result.append(d)
-    return result
-
-
 @router.get("", response_model=PaginatedResponse)
 def list_switches(
     page: int = Query(1, ge=1),
@@ -80,9 +40,8 @@ def list_switches(
     total = q.count()
     pages = ceil(total / size) if total > 0 else 0
     items = q.order_by(Switch.id).offset((page - 1) * size).limit(size).all()
-    enriched = _enrich_with_scan_info(db, items)
     return PaginatedResponse(
-        items=enriched,
+        items=[SwitchOut.model_validate(s).model_dump() for s in items],
         total=total, page=page, size=size, pages=pages,
     )
 
@@ -198,8 +157,7 @@ def get_switch(switch_id: int, db: Session = Depends(get_db), current_user=Depen
     sw = db.query(Switch).get(switch_id)
     if not sw:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="交换机不存在")
-    enriched = _enrich_with_scan_info(db, [sw])
-    return enriched[0] if enriched else SwitchOut.model_validate(sw)
+    return SwitchOut.model_validate(sw)
 
 
 @router.put("/{switch_id}", response_model=SwitchOut)

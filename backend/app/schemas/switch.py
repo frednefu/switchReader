@@ -43,6 +43,7 @@ class SwitchOut(BaseModel):
     last_routes_found: int = 0
     last_scan_time: Optional[datetime] = None
     last_scan_duration: Optional[float] = None
+    last_scan_error: Optional[str] = None
 
     class Config:
         from_attributes = True

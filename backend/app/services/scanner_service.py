@@ -166,6 +166,18 @@ async def _run_scan_async(switch: Switch, scan_log_id: int):
 
     db = SessionLocal()
     try:
+        sw = db.query(Switch).get(switch.id)
+        if sw:
+            sw.last_scan_status = "failed" if error_msg else "success"
+            sw.last_scan_time = datetime.now()
+            sw.last_hosts_found = len(host_data)
+            sw.last_routes_found = len(route_data)
+            sw.last_scan_error = error_msg
+            if error_msg:
+                sw.last_scan_duration = None
+            else:
+                sw.last_scan_duration = None  # duration 在 scan_log 中计算
+
         if error_msg is None:
             _store_host_results(db, switch.id, scan_log_id, host_data, switch.name)
             _store_route_results(db, switch.id, scan_log_id, route_data)
@@ -179,6 +191,9 @@ async def _run_scan_async(switch: Switch, scan_log_id: int):
             scan_log.completed_at = datetime.now()
             if scan_log.started_at:
                 scan_log.duration_seconds = round((scan_log.completed_at - scan_log.started_at).total_seconds(), 1)
+            # 同步 duration 到 switch
+            if sw and scan_log.duration_seconds:
+                sw.last_scan_duration = scan_log.duration_seconds
         db.commit()
     finally:
         db.close()
@@ -188,6 +203,15 @@ async def trigger_scan(switch: Switch, triggered_by: TriggerType) -> int:
     """Trigger an async scan for a switch. Returns the scan_log_id."""
     db = SessionLocal()
     try:
+        # 重置上一次卡住的 running 状态
+        sw = db.query(Switch).get(switch.id)
+        if sw and sw.last_scan_status == "running":
+            sw.last_scan_status = "failed"
+            sw.last_scan_error = "扫描意外中断，已自动重置"
+        if sw:
+            sw.last_scan_status = "running"
+            sw.last_scan_error = None
+
         scan_log = ScanLog(
             switch_id=switch.id,
             source_type="switch",
