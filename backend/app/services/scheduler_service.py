@@ -339,7 +339,7 @@ def _add_zdns_ip_job(zdns_device_id: int, ip_scan_interval: int):
 def _qax_scan_job(device_id: int):
     """单个椒图设备扫描 job（在独立线程中运行）。
 
-    重要：调用 asyncio.run() 前必须关闭 DB 会话，否则 SQLite 写锁冲突导致扫描卡死。
+    重要：调用 asyncio.run() 前必须关闭 DB 会话，避免跨线程连接冲突。
     """
     db = SessionLocal()
     try:

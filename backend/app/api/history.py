@@ -12,7 +12,7 @@ router = APIRouter(prefix="/history", tags=["历史记录"])
 
 
 def _enrich(row: History) -> dict:
-    # 解析 change_detail JSON 字符串 → dict（SQLite Text 列存储的是字符串）
+    # 解析 change_detail JSON 字符串 → dict
     if row.change_detail is not None and isinstance(row.change_detail, str):
         import json
         try:
