@@ -270,6 +270,7 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
 
     except Exception as e:
         error_msg = str(e)
+        scan_success = False
         logger.exception("椒图扫描失败 device_id=%s: %s", device_id, error_msg)
         try:
             _finalize_scan_failed(device_id, start_time, error_msg)
@@ -295,16 +296,38 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
         except Exception:
             logger.exception("写入椒图变更历史失败 device_id=%s", device_id)
 
-        _finalize_scan_success(device_id, start_time, server_count, detail_success, detail_failed)
+        try:
+            _finalize_scan_success(device_id, start_time, server_count, detail_success, detail_failed)
+        except Exception:
+            logger.exception("更新椒图设备成功状态失败 device_id=%s", device_id)
+            # 回退方案：直接用底层更新
+            try:
+                db = SessionLocal()
+                try:
+                    db.query(QianXinDevice).filter(
+                        QianXinDevice.id == device_id
+                    ).update({
+                        "last_scan_status": "success",
+                        "last_scan_time": datetime.now(),
+                        "last_server_count": server_count,
+                        "last_scan_error": None,
+                    }, synchronize_session=False)
+                    db.commit()
+                finally:
+                    db.close()
+            except Exception:
+                logger.exception("回退更新也失败 device_id=%s", device_id)
+
         duration = round((datetime.now() - start_time).total_seconds(), 1)
         logger.info("椒图扫描完成 device=%s 服务器=%s 详情成功=%s 失败=%s 耗时=%ss",
                     device_name, server_count, detail_success, detail_failed, duration)
 
     # 更新扫描日志（无论成功或失败都执行）
     if scan_log_id:
-        _update_scan_log(scan_log_id, scan_success, server_count, error_msg)
-        logger.info("椒图扫描日志已更新 scan_log_id=%s success=%s count=%s",
-                    scan_log_id, scan_success, server_count)
+        try:
+            _update_scan_log(scan_log_id, scan_success, server_count, error_msg)
+        except Exception:
+            logger.exception("更新椒图扫描日志失败 scan_log_id=%s", scan_log_id)
 
 
 def _wipe_qax_data(device_id: int):
