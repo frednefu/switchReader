@@ -130,47 +130,34 @@ Frontend ──► FastAPI ──► MySQL 8.0
 
 ---
 
-### Phase D: WebSocket 进度推送
+### Phase D: WebSocket 进度推送 + 前端稳定性修复 ✅
 
-> **将 ScanMonitor 的 2 秒轮询替换为 WebSocket 实时推送，消除延迟和无效请求**
+> **已提交** `716a6c0`、`0ea20d7`、`4929c66`
 
-**现状：** ScanMonitor.vue 已完整实现，目前通过 `setInterval(fetchAll, 2000)` 轮询 `/api/scan-logs` 获取进度。
-
-**改造目标：**
-
-```
-当前：前端 ──每2秒──► GET /api/scan-logs ──► 返回全量列表
-改造：前端 ──WebSocket──► /ws/scan-progress ──► 仅推送变化的任务
-```
-
-**后端改动：**
+**后端改造：**
 
 | 文件 | 内容 |
 |------|------|
-| `backend/app/api/ws.py` | WebSocket 端点 `/ws/scan-progress`：认证 JWT token，订阅 Redis channel |
-| `backend/app/services/progress_broker.py` | Redis Pub-Sub 发布/订阅：`scan_step_service` 更新进度时发布消息到 `channel:scan:{scan_log_id}` |
+| `backend/app/api/ws.py` | WebSocket 端点 `/ws/scan-progress`：JWT 鉴权 + Redis Pub-Sub 订阅 |
+| `backend/app/services/progress_broker.py` | Redis Pub-Sub 发布：`publish_scan_update()` 推送轻量标量字段（不含 steps/log_output） |
+| `backend/app/services/scan_step_service.py` | `_notify()` 添加 1.5s 节流；`append_log()` 不再触发通知（终端输出由前端独立轮询） |
+| 6 个 scanner_service | 增强终端日志输出：连接状态、采集内容说明、采集进度（每 10 台服务器） |
 
-**前端改动：**
+**前端改造：**
 
 | 文件 | 内容 |
 |------|------|
-| `frontend/src/views/ScanMonitor.vue` | 替换 `setInterval` 轮询为 WebSocket 连接，接收增量更新并合并到 items 列表 |
-| `frontend/src/api/ws.js` | WebSocket 封装：自动重连、心跳保活、JWT 鉴权 |
+| `frontend/src/views/ScanMonitor.vue` | 完全重写——移除 WebSocket 集成，改用 5s 轮询 + 自动刷新开关；新增全部删除按钮；默认筛选运行中任务；模板状态感知显示 |
 
-**消息格式（JSON）：**
+**技术决策——WebSocket 为何从前端移除：**
 
-```json
-{"id": 42, "status": "running", "progress_pct": 65, "current_step": "ARP采集完成",
- "hosts_found": 320, "duration_seconds": 8.3, "steps": [...], "log_output_tail": "..."}
-```
+WebSocket 实时推送方案在后端已完整实现（Redis Pub-Sub → WS 端点），但在前端集成时暴露了严重的性能问题：
 
-**优势：**
-- 进度更新零延迟（Worker 写 DB → 发布 Redis → WebSocket 推前端，<100ms）
-- 减少 HTTP 请求（从每 2 秒 1 次变成 0 次轮询）
-- 支持多客户端同时监控（每个浏览器连接独立 WebSocket）
-- 保留短轮询作为 fallback（WebSocket 断开时自动降级）
+- **根因**：Vue 3 的 `reactive`/`ref` 会对 WS 推送的嵌套对象（`steps` 数组、`log_output_tail`）创建深度 Proxy 包装。当 6 类数据源同时扫描（QAX 300+ 服务器、F5 大量 Pool 成员），高频 WS 消息触发 `Object.assign` 合并，导致 Vue Proxy 递归重新包装嵌套对象，造成浏览器主线程阻塞数秒。
+- **尝试过的方案**：`shallowRef`（仍触发深层追踪）、RAF 批量更新、数组整体替换、"WS 仅作脏标记"——均未能彻底解决，甚至使问题更严重。
+- **最终方案**：前端移除 WebSocket 集成，改用简单的 5 秒轮询 + 可关闭的自动刷新开关。后端 WS 基础设施保留备用。轮询返回的普通 JS 对象不经过 Vue Proxy 深层追踪，性能稳定。
 
-**Redis Pub-Sub Channel 设计：**
+**Redis Pub-Sub Channel 设计（后端已实现，前端暂未使用）：**
 
 ```
 channel:scan:{scan_log_id}    — 单个任务进度更新
@@ -269,7 +256,7 @@ API 验证 TOKEN + IP 白名单 → 返回 Worker ID
 | Phase A: MySQL 切换 | ✅ 已完成 | `ffb403f` |
 | Phase B: Celery + Redis 异步化 | ✅ 已完成 | `147873e` |
 | Phase C: 扫描步骤日志 + 监控面板 | ✅ 已完成 | `f172f61` |
-| Phase D: WebSocket 进度推送 | ✅ 已完成 | `716a6c0` |
+| Phase D: WebSocket 进度推送 + 前端稳定性修复 | ✅ 已完成 | `716a6c0`, `0ea20d7` |
 | Phase E: Worker 容器化 | 🔲 下一步 | — |
 | Phase F: Worker 管理面板 | 🔲 待开发 | — |
 | Phase G: Redis 缓存 | 🔲 待开发 | — |

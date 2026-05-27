@@ -545,6 +545,9 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
         if scan_log_id:
             update_progress(scan_log_id, 5, "连接 vCenter 并采集数据")
             step1_id = add_step(scan_log_id, 1, "连接 vCenter 并采集数据")
+            append_log(scan_log_id, f"正在连接 vCenter {vc.host}:{vc.port} ...")
+            append_log(scan_log_id, "vCenter 数据采集包含: 虚拟机清单、ESXi 主机、Datastore 存储")
+            append_log(scan_log_id, "根据 vCenter 规模不同，数据采集可能需要 1-5 分钟，请耐心等待...")
 
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, _do_vcenter_scan, vc.host, vc.username, vc.password, vc.port)

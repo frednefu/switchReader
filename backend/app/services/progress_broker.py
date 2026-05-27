@@ -20,9 +20,12 @@ def _get_redis() -> Redis:
 
 
 def publish_scan_update(scan_log_id: int):
-    """发布某次扫描的状态快照到 Redis channel。"""
+    """发布某次扫描的状态快照到 Redis channel。
+    只推送轻量标量字段（不含 steps 和 log_output），避免前端 Vue Proxy 包装大对象导致卡死。
+    steps 和终端输出通过 REST API 按需获取。
+    """
     from app.database import SessionLocal
-    from app.models.scan_log import ScanLog, ScanStep
+    from app.models.scan_log import ScanLog
 
     try:
         db = SessionLocal()
@@ -30,10 +33,6 @@ def publish_scan_update(scan_log_id: int):
             log = db.query(ScanLog).get(scan_log_id)
             if not log:
                 return
-
-            steps = db.query(ScanStep).filter(
-                ScanStep.scan_log_id == scan_log_id
-            ).order_by(ScanStep.step_order).all()
 
             payload = {
                 "id": log.id,
@@ -49,19 +48,6 @@ def publish_scan_update(scan_log_id: int):
                 "error_message": log.error_message,
                 "started_at": log.started_at.isoformat() if log.started_at else None,
                 "completed_at": log.completed_at.isoformat() if log.completed_at else None,
-                "log_output_tail": (log.log_output or "")[-2000:],
-                "steps": [
-                    {
-                        "id": s.id,
-                        "step_order": s.step_order,
-                        "step_name": s.step_name,
-                        "status": s.status.value if hasattr(s.status, 'value') else s.status,
-                        "items_total": s.items_total,
-                        "items_processed": s.items_processed,
-                        "error_message": s.error_message,
-                    }
-                    for s in steps
-                ],
             }
         finally:
             db.close()

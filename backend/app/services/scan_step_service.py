@@ -107,7 +107,10 @@ def mark_started(scan_log_id: int):
 
 
 def append_log(scan_log_id: int, message: str):
-    """追加一行时间戳日志到 scan_log.log_output。"""
+    """追加一行时间戳日志到 scan_log.log_output。
+    注意：不触发 _notify，终端输出由前端独立轮询 getScanOutput API 获取，
+    避免高频写入时 WS 消息淹没浏览器事件循环。
+    """
     db = SessionLocal()
     try:
         log = db.query(ScanLog).get(scan_log_id)
@@ -119,7 +122,6 @@ def append_log(scan_log_id: int, message: str):
             else:
                 log.log_output = line
             db.commit()
-            _notify(scan_log_id)
     except Exception:
         db.rollback()
     finally:

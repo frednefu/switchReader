@@ -272,6 +272,8 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
             update_progress(scan_log_id, 40, "逐台采集端口/进程/软件详情")
             step3_id = add_step(scan_log_id, 3, "采集服务器详情")
             append_log(scan_log_id, f"开始采集 {server_count} 台服务器详情...")
+            append_log(scan_log_id, "每台服务器采集: 端口列表 + 进程列表 + 已安装软件")
+            append_log(scan_log_id, f"调用椒图 API: GET /api/v1/server/{len(servers)}台/detail")
 
         total_ports = 0
         total_procs = 0
@@ -288,6 +290,8 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
                 continue
 
             try:
+                if scan_log_id and (idx + 1) % 10 == 0:
+                    append_log(scan_log_id, f"  详情采集进度: {idx + 1}/{server_count} (端口 {total_ports}/进程 {total_procs}/软件 {total_sw})")
                 ports = await loop.run_in_executor(None, client.get_server_ports, machine_uuid)
                 procs = await loop.run_in_executor(None, client.get_server_processes, machine_uuid)
                 sw_list = await loop.run_in_executor(None, client.get_server_software, machine_uuid)

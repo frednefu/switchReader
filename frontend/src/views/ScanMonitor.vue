@@ -10,14 +10,13 @@
       </div>
       <div class="header-right">
         <el-button
-          v-if="failedCount > 0"
+          v-if="items.length > 0"
           size="small"
           type="danger"
-          plain
-          @click="clearAllFailed"
+          @click="clearAll"
           :loading="clearingAll"
         >
-          <el-icon><Delete /></el-icon> 清除失败记录 ({{ failedCount }})
+          <el-icon><Delete /></el-icon> 全部删除 ({{ items.length }})
         </el-button>
         <el-switch
           v-model="autoRefresh"
@@ -25,7 +24,7 @@
           size="small"
         />
         <el-button text @click="fetchAll" :loading="loading">
-          <el-icon><Refresh /></el-icon>
+          <el-icon><Refresh /></el-icon> 刷新
         </el-button>
       </div>
     </div>
@@ -99,7 +98,7 @@
             <el-icon v-else-if="item.status === 'running'" class="icon-queued"><Clock /></el-icon>
             <el-icon v-else-if="item.status === 'success'" class="icon-success"><CircleCheckFilled /></el-icon>
             <el-icon v-else class="icon-failed"><CircleCloseFilled /></el-icon>
-            <span>{{ item.current_step || '等待中...' }}</span>
+            <span>{{ item.current_step || (item.status === 'success' ? '扫描完成' : item.status === 'failed' ? '扫描失败' : '等待中...') }}</span>
           </div>
 
           <div class="card-actions" @click.stop>
@@ -176,12 +175,8 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { getScanLogs, getScanSteps, getScanOutput, deleteScanLog, clearScanLogs } from '@/api/scanLogs'
-import { createScanProgressSocket } from '@/api/ws'
-import { useAuthStore } from '@/store/auth'
 import api from '@/api/index'
 import { ElMessage, ElMessageBox } from 'element-plus'
-
-const authStore = useAuthStore()
 
 const items = ref([])
 const loading = ref(false)
@@ -195,14 +190,13 @@ const clearingAll = ref(false)
 const detailTab = ref('steps')
 const terminalOutput = ref('')
 const terminalRef = ref(null)
+
 let refreshTimer = null
 let terminalTimer = null
-let wsSocket = null
 
-const filters = reactive({ source_type: '', status: '' })
+const filters = reactive({ source_type: '', status: 'running' })
 
 const runningCount = computed(() => items.value.filter(i => i.status === 'running').length)
-const failedCount = computed(() => items.value.filter(i => i.status === 'failed').length)
 
 const sortedSteps = computed(() => [...steps.value].sort((a, b) => a.step_order - b.step_order))
 
@@ -244,18 +238,21 @@ function elapsedTime(startedAt) {
   return `${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`
 }
 
+// ── 数据获取（纯手动刷新，不自动轮询，不含 WebSocket）──
+
 async function fetchAll() {
   loading.value = true
   try {
     const params = { page: 1, size: 50 }
     if (filters.source_type) params.source_type = filters.source_type
     if (filters.status) params.status = filters.status
-    else params.status = 'running'
     const data = await getScanLogs(params)
     items.value = data.items || []
   } catch { /* handled */ }
   finally { loading.value = false }
 }
+
+// ── 展开 / 步骤 / 终端 ──
 
 async function toggleExpand(item) {
   if (expandedId.value === item.id) {
@@ -287,7 +284,8 @@ async function fetchSteps(logId) {
 async function fetchTerminal(logId) {
   try {
     const data = await getScanOutput(logId)
-    terminalOutput.value = data.log_output || ''
+    const raw = data.log_output || ''
+    terminalOutput.value = raw.length > 100000 ? '...(日志过长，仅显示最后 100KB)\n' + raw.slice(-100000) : raw
     await nextTick()
     scrollTerminal()
   } catch { /* handled */ }
@@ -301,9 +299,7 @@ function scrollTerminal() {
 
 function startTerminalPoll(logId) {
   stopTerminalPoll()
-  terminalTimer = setInterval(() => {
-    fetchTerminal(logId)
-  }, 1500)
+  terminalTimer = setInterval(() => { fetchTerminal(logId) }, 2000)
 }
 
 function stopTerminalPoll() {
@@ -313,18 +309,18 @@ function stopTerminalPoll() {
   }
 }
 
+// ── 操作按钮 ──
+
 async function cancelScan(item) {
   try {
     await ElMessageBox.confirm(`确定要取消 ${item.source_name} 的扫描吗？`, '确认取消', {
-      type: 'warning',
-      confirmButtonText: '确定取消',
+      type: 'warning', confirmButtonText: '确定取消',
     })
   } catch { return }
 
   cancellingId.value = item.id
   try {
-    const type = item.source_type
-    const id = item.source_id
+    const type = item.source_type; const id = item.source_id
     if (type === 'switch') await api.post(`/switches/${id}/cancel-scan`)
     else if (type === 'vcenter') await api.post(`/vcenters/${id}/cancel-scan`)
     else if (type === 'f5') await api.post(`/f5/${id}/cancel-scan`)
@@ -340,8 +336,7 @@ async function cancelScan(item) {
 async function deleteRecord(item) {
   try {
     await ElMessageBox.confirm(`确定要删除 ${item.source_name} 的扫描记录吗？`, '确认删除', {
-      type: 'warning',
-      confirmButtonText: '确定删除',
+      type: 'warning', confirmButtonText: '确定删除',
     })
   } catch { return }
 
@@ -349,72 +344,35 @@ async function deleteRecord(item) {
   try {
     await deleteScanLog(item.id)
     ElMessage.success('已删除扫描记录')
-    if (expandedId.value === item.id) {
-      expandedId.value = null
-      stopTerminalPoll()
-    }
+    if (expandedId.value === item.id) { expandedId.value = null; stopTerminalPoll() }
     fetchAll()
   } catch { /* handled */ }
   finally { deletingId.value = null }
 }
 
-async function clearAllFailed() {
+async function clearAll() {
   try {
     await ElMessageBox.confirm(
-      `确定要清除全部 ${failedCount.value} 条失败的扫描记录吗？此操作不可撤销。`,
-      '确认清除全部失败记录',
-      { type: 'warning', confirmButtonText: '确定清除' }
+      `确定要删除全部 ${items.value.length} 条扫描记录吗？此操作不可撤销。`,
+      '确认全部删除',
+      { type: 'warning', confirmButtonText: '确定删除' }
     )
   } catch { return }
 
   clearingAll.value = true
   try {
-    const res = await clearScanLogs(null, 'failed')
+    const res = await clearScanLogs(null, null)
     ElMessage.success(res.message || '已清除')
     fetchAll()
   } catch { /* handled */ }
   finally { clearingAll.value = false }
 }
 
-function mergeWsItem(data) {
-  const idx = items.value.findIndex(i => i.id === data.id)
-  if (idx >= 0) {
-    // 合并更新：保留 WS 传来的字段，本地保留展开等 UI 状态
-    Object.assign(items.value[idx], data)
-  } else {
-    items.value.unshift(data)
-  }
-  // 限制列表长度
-  if (items.value.length > 100) {
-    items.value = items.value.slice(0, 100)
-  }
-}
-
-function startWebSocket() {
-  if (wsSocket) return
-  const token = authStore.token || localStorage.getItem('token')
-  if (!token) return
-  wsSocket = createScanProgressSocket(token)
-  wsSocket.onMessage((data) => {
-    // WebSocket 推送的是单条任务更新，合并到列表
-    if (items.value.length === 0) return  // 还未初始加载
-    mergeWsItem(data)
-  })
-}
-
-function stopWebSocket() {
-  if (wsSocket) {
-    wsSocket.destroy()
-    wsSocket = null
-  }
-}
+// ── 自动刷新轮询 ──
 
 function startPolling() {
   stopPolling()
-  // 短轮询作为 fallback：WebSocket 连接时 15s 健康检查，断开时 3s 快速轮询
-  refreshTimer = setInterval(() => {
-    fetchAll()
-  }, 15000)
+  refreshTimer = setInterval(() => { fetchAll() }, 5000)
 }
 
 function stopPolling() {
@@ -425,28 +383,22 @@ function stopPolling() {
 }
 
 watch(autoRefresh, (val) => {
-  if (val) {
-    startWebSocket()
-    startPolling()
-  } else {
-    stopWebSocket()
-    stopPolling()
-  }
+  if (val) { startPolling() } else { stopPolling() }
 })
 
 onMounted(() => {
   fetchAll()
-  if (autoRefresh.value) {
-    startWebSocket()
-    startPolling()
-  }
+  startPolling()
 })
 
 onUnmounted(() => {
   stopPolling()
   stopTerminalPoll()
-  stopWebSocket()
 })
+
+if (import.meta.hot) {
+  import.meta.hot.decline()
+}
 </script>
 
 <style scoped>

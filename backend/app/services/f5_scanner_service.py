@@ -441,6 +441,8 @@ async def _run_f5_scan_async(f5_device_id: int, scan_log_id: int | None = None):
         if scan_log_id:
             mark_started(scan_log_id)
             append_log(scan_log_id, f"开始扫描 F5 {device.host}")
+            append_log(scan_log_id, "F5 采集内容: Virtual Server、Pool 成员、iRules、应用映射")
+            append_log(scan_log_id, f"正在通过 iControl REST API 连接 {device.host}:{device.port} ...")
 
         device.last_scan_status = "running"
         device.last_scan_error = None
@@ -451,6 +453,8 @@ async def _run_f5_scan_async(f5_device_id: int, scan_log_id: int | None = None):
             step1_id = add_step(scan_log_id, 1, "连接 F5 并采集数据")
 
         loop = asyncio.get_running_loop()
+        if scan_log_id:
+            append_log(scan_log_id, "请求 F5 Virtual Server 列表...")
         scan_result = await loop.run_in_executor(
             None, _do_f5_scan, device.host, device.username, device.password, device.port
         )
