@@ -21,8 +21,9 @@
         <el-select v-model="statusFilter" placeholder="状态筛选" clearable style="width: 140px" @change="onFilterChange">
           <el-option label="全部" value="" />
           <el-option label="在线" value="online" />
-          <el-option label="离线" value="offline" />
           <el-option label="忙碌" value="busy" />
+          <el-option label="待接入" value="pending" />
+          <el-option label="离线" value="offline" />
         </el-select>
         <el-input v-model="search" placeholder="搜索 Worker 名称..." clearable style="width: 240px" @keyup.enter="onFilterChange" @clear="onFilterChange" />
         <el-button type="primary" @click="onFilterChange">查询</el-button>
@@ -118,7 +119,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { reactive, ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { getWorkers, registerWorker, deleteWorker } from '@/api/workers'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -145,11 +146,11 @@ let refreshTimer = null
 const onlineCount = computed(() => workers.value.filter(w => w.status === 'online').length)
 
 function statusType(s) {
-  return s === 'online' ? 'success' : s === 'busy' ? 'warning' : 'info'
+  return s === 'online' ? 'success' : s === 'busy' ? 'warning' : s === 'pending' ? '' : 'info'
 }
 
 function statusLabel(s) {
-  return s === 'online' ? '在线' : s === 'busy' ? '忙碌' : '离线'
+  return s === 'online' ? '在线' : s === 'busy' ? '忙碌' : s === 'pending' ? '待接入' : '离线'
 }
 
 const _TASK_LABELS = {
@@ -166,7 +167,7 @@ function taskTypeLabel(t) {
 
 function heartbeatStale(row) {
   if (!row.last_heartbeat) return false
-  return Date.now() - new Date(row.last_heartbeat).getTime() > 120000
+  return Date.now() - new Date(row.last_heartbeat).getTime() > 45000
 }
 
 function relativeTime(t) {

@@ -96,17 +96,159 @@ docker-compose exec backend python seed.py
 # API 文档: http://localhost:8000/docs
 ```
 
-#### Worker 独立部署
+### Worker 分布式运行机制
+
+#### 拓扑架构
+
+```
+                          ┌──────────────────────────┐
+                          │      核心节点 (主控)       │
+                          │  FastAPI + MySQL + Redis  │
+                          │      10.0.0.1:8000        │
+                          └────────────┬─────────────┘
+                                       │
+                         Redis 任务队列 (5 个数据源)
+                         ┌──────────┬──┴──┬──────────┐
+                         │          │     │          │
+                    queue:scan:  switch vcenter  f5  zdns  qax
+                         │          │     │          │
+              ┌──────────┼──────────┼─────┼──────────┼──────────┐
+              │          │          │     │          │          │
+         ┌────┴────┐ ┌───┴────┐ ┌──┴───┐ ┌┴──────┐ ┌──┴────┐
+         │Worker 1 │ │Worker 2│ │Worker│ │Worker │ │Worker │
+         │10.0.0.2 │ │10.0.0.3│ │  N   │ │  N+1  │ │  N+2  │
+         │snmp     │ │vcenter │ │ f5   │ │ zdns  │ │  qax  │
+         │vcenter  │ │ f5     │ │ zdns │ │  qax  │ │ snmp  │
+         │f5,zdns  │ │ zdns   │ │ qax  │ │ snmp  │ │vcenter│
+         └─────────┘ └────────┘ └──────┘ └───────┘ └───────┘
+              │          │          │         │          │
+              │          │          │         │          │
+              └──────────┴──────────┴─────────┴──────────┘
+                         定期心跳上报 + 任务状态回写
+                               ▼
+                     POST /api/workers/{id}/heartbeat
+```
+
+**核心节点** 负责 Web 界面、API 网关、数据库、Redis 消息队列。Worker 节点仅运行 Celery 消费者进程，无需数据库或 Web 服务。
+
+**Worker 节点** 均使用同一 Docker 镜像，所有扫描能力内置。启动时通过 `capabilities.task_types` 声明要处理的数据源类型，可声明全部或部分类型。多个 Worker 声明相同类型即可实现该类型的多实例并行消费。
+
+#### 注册认证流程
+
+```
+Worker 容器启动
+    │
+    ├─ 环境变量: WORKER_TOKEN, WORKER_NAME, API_BASE_URL
+    │
+    ▼
+Celery worker_ready 信号触发
+    │
+    ├─ POST /api/workers/register  (Bearer WORKER_TOKEN)
+    │    Body: { worker_name, capabilities, version }
+    │    ← API 自动记录客户端 IP (request.client.host)
+    │    ← 返回 worker_id，存储到 Worker 内存
+    │
+    ▼
+Worker 进入就绪状态，开始消费 Redis 任务队列
+    │
+    ├─ 定期心跳: POST /api/workers/{id}/heartbeat (每 15s)
+    │    Body: { current_tasks, status }
+    │
+    ▼
+Worker 关闭 (SIGTERM)
+    │
+    ├─ SIGTERM 信号处理器 → 即时调用 deregister
+    └─ Celery worker_shutdown 信号 → 补充保障
+         → 状态标记为 offline，current_tasks 清零
+```
+
+#### 认证机制
+
+| 组件 | 认证方式 | 说明 |
+|------|---------|------|
+| Worker → API | Bearer `WORKER_TOKEN`（共享密钥）| `secrets.compare_digest()` 时序安全比较 |
+| Admin → Worker API | Bearer Admin JWT | 管理员通过前端管理 Worker |
+
+**注册端点双认证**（`verify_worker_or_admin`）：
+- 先尝试 Worker Token 认证 → 工作节点自注册
+- Token 不匹配则尝试 Admin JWT → 管理员手动注册
+
+#### 生产环境分布式部署
+
+**前置条件**：核心节点已完成部署（MySQL + Redis + FastAPI + Frontend），网络互通。
+
+**步骤**：
 
 ```bash
-# 单独启动 Worker 容器（连接已有 MySQL + Redis）
+# 1. 在每一台 Worker 主机上克隆项目
+git clone <repo-url> /opt/omniview
+cd /opt/omniview
+
+# 2. 配置环境变量 (.env)
+# WORKER_TOKEN=<与核心节点一致的共享密钥>
+# REDIS_PASSWORD=<与核心节点一致的 Redis 密码>
+# REDIS_URL=redis://:密码@10.0.0.1:6379/0  ← 核心节点 Redis 地址
+# API_BASE_URL=http://10.0.0.1:8000       ← 核心节点 API 地址
+# WORKER_NAME=omniview-worker-01           ← 本机唯一标识
+
+# 3. 启动 Worker（仅启动 worker 服务，不含 mysql/redis）
 docker-compose -f docker-compose.worker.yml up -d
 
-# 扩容到 3 个 Worker 实例
-docker-compose -f docker-compose.worker.yml up -d --scale worker=3
+# 4. 同一主机扩容（多实例并行）
+docker-compose -f docker-compose.worker.yml up -d --scale worker=4
 
-# 环境变量需在 .env 中配置 WORKER_TOKEN（与 API 服务器一致）
+# 5. 手动创建单个 Worker（指定名称和并发数）
+docker run -d \
+  --name omniview-worker-02 \
+  --network <network_name> \
+  -e DATABASE_URL="mysql+pymysql://ipam:password@mysql:3306/ipam?charset=utf8mb4" \
+  -e REDIS_URL="redis://:password@redis:6379/0" \
+  -e WORKER_TOKEN="<shared-secret>" \
+  -e API_BASE_URL="http://host.docker.internal:8000" \
+  -e WORKER_NAME="worker-02" \
+  -e TZ="Asia/Shanghai" \
+  -v "$(pwd)/backend:/app" \
+  -v "$(pwd)/switchReader:/app/switchReader" \
+  <worker-image>:latest \
+  celery -A app.tasks.celery_app worker --concurrency=8 --loglevel=info --time-limit=3600 --soft-time-limit=3300
 ```
+
+**`docker run` 参数说明**：
+
+| 参数 | 说明 |
+|------|------|
+| `--name` | 容器名，必须唯一 |
+| `--network` | 必须与 MySQL/Redis 容器同一网络 |
+| `WORKER_NAME` | Worker 注册名称，必须唯一，与手动注册名称一致则认领 pending 状态 |
+| `--concurrency=N` | **并发任务数**，即 Worker 同时可执行的任务数（默认 4） |
+| `--time-limit` | 单个任务硬超时（秒），超时强制终止 |
+| `--soft-time-limit` | 单个任务软超时（秒），超时抛出异常供任务自行处理 |
+
+**多主机部署示例**（3 台 Worker 主机，每台 4 实例 = 12 并发）：
+
+| 主机 | IP | Worker 名称 | 实例数 |
+|------|-----|-------------|--------|
+| Worker 主机 A | 10.0.0.2 | worker-a-{n} | 4 |
+| Worker 主机 B | 10.0.0.3 | worker-b-{n} | 4 |
+| Worker 主机 C | 10.0.0.4 | worker-c-{n} | 4 |
+
+**关键环境变量**（`.env` 和 `docker-compose.worker.yml`）：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `WORKER_TOKEN` | 共享密钥，必须与核心节点一致 | 必填 |
+| `API_BASE_URL` | 核心节点 API 地址 | `http://backend:8000` |
+| `WORKER_NAME` | Worker 唯一名称 | 主机名 |
+| `WORKER_VERSION` | Worker 版本标识 | `2.0.0` |
+| `REDIS_PASSWORD` | Redis 认证密码，所有节点必须一致 | 必填 |
+| `REDIS_URL` | Redis 连接串（含密码） | `redis://:password@redis:6379/0` |
+
+**注意事项**：
+- 所有 Worker 的 `WORKER_TOKEN` 必须与核心节点 `.env` 中的一致，否则注册被拒
+- **Redis 密码认证**：跨主机通信必须使用 `requirepass`，`REDIS_URL` 格式为 `redis://:密码@主机:6379/0`
+- Worker 通过 `API_BASE_URL` 访问核心节点 API，确保网络可达（防火墙放行 8000 + 6379 端口）
+- Worker 容器与核心节点共享 Redis 队列，Redis 连接信息从 `.env` 读取
+- Worker 意外断连后，心跳超时（>2 分钟）在管理面板显示为红色警告
 
 #### 本地开发
 

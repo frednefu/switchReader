@@ -33,20 +33,29 @@ def register_worker(
     _auth: str = Depends(verify_worker_or_admin),
 ):
     """Worker 注册（幂等：同名 Worker 重新注册时更新记录）。
-    Worker 自注册：Bearer WORKER_TOKEN；管理员手动注册：Bearer Admin JWT。"""
+
+    管理员手动注册 → status="pending"（预配置，等待真实 Worker 接入）
+    Worker 自注册   → status="online"（真实 Worker 正在运行）
+    """
     auth_header = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
     if _auth == "admin":
-        # 管理员手动注册 — 存储 WORKER_TOKEN 的 hash，Worker 凭证以此为凭
         token_hash = hashlib.sha256(settings.worker_token.encode()).hexdigest()
+        initial_status = "pending"
     else:
         token_hash = hashlib.sha256(auth_header.encode()).hexdigest()
+        initial_status = "online"
     now = datetime.now()
 
     existing = db.query(ScanWorker).filter(ScanWorker.worker_name == body.worker_name).first()
     if existing:
         existing.token_hash = token_hash
         existing.ip_address = request.client.host if request.client else None
-        existing.status = "online"
+        # Worker 自注册时无论之前什么状态都升级为 online（真实节点接入）
+        # 管理员重复注册时不降级已 online 的 Worker
+        if _auth == "worker":
+            existing.status = "online"
+        elif existing.status != "online":
+            existing.status = "pending"
         existing.capabilities = body.capabilities
         existing.version = body.version or ""
         existing.last_heartbeat = now
@@ -61,6 +70,7 @@ def register_worker(
         worker_name=body.worker_name,
         token_hash=token_hash,
         ip_address=request.client.host if request.client else None,
+        status=initial_status,
         capabilities=body.capabilities,
         version=body.version or "",
         last_heartbeat=now,
@@ -71,7 +81,7 @@ def register_worker(
     return WorkerRegisterResponse(
         worker_id=worker.id,
         worker_name=worker.worker_name,
-        message="Worker 注册成功",
+        message="Worker 注册成功" if _auth == "worker" else "Worker 已预注册，等待真实节点接入",
     )
 
 

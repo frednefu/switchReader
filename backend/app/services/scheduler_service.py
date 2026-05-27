@@ -142,6 +142,16 @@ def start_scheduler():
     finally:
         db.close()
 
+    # 注册过期 Worker 清理任务（每 30 秒检查一次）
+    if not scheduler.get_job("cleanup_stale_workers"):
+        scheduler.add_job(
+            _cleanup_stale_workers,
+            trigger=IntervalTrigger(seconds=30),
+            id="cleanup_stale_workers",
+            replace_existing=True,
+            misfire_grace_time=15,
+        )
+
     if not scheduler.running:
         scheduler.start()
         logger.info("定时扫描调度器已启动")
@@ -152,6 +162,29 @@ def shutdown_scheduler():
     if scheduler.running:
         scheduler.shutdown(wait=False)
         logger.info("定时扫描调度器已关闭")
+
+
+def _cleanup_stale_workers():
+    """定期检查并标记心跳过期的 Worker 为离线（超过 45 秒无心跳视为离线）。"""
+    from datetime import timedelta
+    from app.models.scan_worker import ScanWorker
+    db = SessionLocal()
+    try:
+        threshold = datetime.now() - timedelta(seconds=45)
+        stale = db.query(ScanWorker).filter(
+            ScanWorker.status == "online",
+            ScanWorker.last_heartbeat < threshold,
+        ).all()
+        for w in stale:
+            w.status = "offline"
+            w.current_tasks = 0
+            logger.info("Worker %s (ID=%s) 心跳过期，已标记为离线", w.worker_name, w.id)
+        if stale:
+            db.commit()
+    except Exception:
+        logger.exception("过期 Worker 清理失败")
+    finally:
+        db.close()
 
 
 def refresh_job(switch_id: int, scan_interval: int):

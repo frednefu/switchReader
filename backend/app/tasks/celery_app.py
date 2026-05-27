@@ -1,7 +1,10 @@
-"""Celery 应用实例 — Redis broker + backend，含 Worker 自动注册/注销。"""
+"""Celery 应用实例 — Redis broker + backend，含 Worker 自动注册/注销 + 定时心跳。"""
 import hashlib
 import os
+import signal
 import socket
+import threading
+import time
 import urllib.request
 import json
 import logging
@@ -65,20 +68,52 @@ def _register_worker():
         return None
 
 
-_WORKER_ID = None
+def _send_heartbeat(worker_id):
+    """向 API 发送心跳（在当前线程中执行）。"""
+    api_base = os.environ.get("API_BASE_URL", "http://backend:8000")
+    worker_token = settings.worker_token
+    try:
+        # 从 Celery inspect 获取当前活跃任务数
+        current_tasks = 0
+        try:
+            inspector = celery_app.control.inspect()
+            active = inspector.active()
+            if active:
+                for worker_name, tasks in active.items():
+                    current_tasks += len(tasks)
+        except Exception:
+            pass
+
+        status = "busy" if current_tasks > 0 else "online"
+        data = json.dumps({"current_tasks": current_tasks, "status": status}).encode()
+        req = urllib.request.Request(
+            f"{api_base}/api/workers/{worker_id}/heartbeat",
+            data=data,
+            headers={
+                "Authorization": f"Bearer {worker_token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=10)
+    except Exception as e:
+        logger.warning("Worker 心跳发送失败 (ID=%s): %s", worker_id, e)
 
 
-@worker_ready.connect
-def on_worker_ready(sender=None, **kwargs):
-    """Worker 就绪后自动注册。"""
-    global _WORKER_ID
-    _WORKER_ID = _register_worker()
+def _heartbeat_loop(worker_id):
+    """后台心跳线程：每 15 秒向 API 上报心跳。"""
+    while not _heartbeat_stop.is_set():
+        _heartbeat_stop.wait(15)
+        if not _heartbeat_stop.is_set():
+            _send_heartbeat(worker_id)
 
 
-@worker_shutdown.connect
-def on_worker_shutdown(sender=None, **kwargs):
-    """Worker 关闭时自动注销。"""
-    global _WORKER_ID
+def _deregister_worker():
+    """向 API 发送注销请求（供 Celery 信号和 SIGTERM 处理器共用）。"""
+    global _WORKER_ID, _heartbeat_thread
+    _heartbeat_stop.set()
+    if _heartbeat_thread and _heartbeat_thread.is_alive():
+        _heartbeat_thread.join(timeout=3)
     if not _WORKER_ID:
         return
     api_base = os.environ.get("API_BASE_URL", "http://backend:8000")
@@ -89,7 +124,40 @@ def on_worker_shutdown(sender=None, **kwargs):
             headers={"Authorization": f"Bearer {worker_token}"},
             method="POST",
         )
-        urllib.request.urlopen(req, timeout=10)
+        urllib.request.urlopen(req, timeout=5)
         logger.info("Worker (ID=%s) 已注销", _WORKER_ID)
     except Exception as e:
         logger.warning("Worker 注销失败: %s", e)
+
+
+def _sigterm_handler(signum, frame):
+    """SIGTERM 信号处理器 — 在进程被 kill 前立即注销。"""
+    logger.info("收到 SIGTERM，正在注销 Worker...")
+    _deregister_worker()
+
+
+_WORKER_ID = None
+_heartbeat_thread = None
+_heartbeat_stop = threading.Event()
+
+
+@worker_ready.connect
+def on_worker_ready(sender=None, **kwargs):
+    """Worker 就绪后自动注册并启动心跳线程。"""
+    global _WORKER_ID, _heartbeat_thread
+    _WORKER_ID = _register_worker()
+    if _WORKER_ID:
+        _heartbeat_stop.clear()
+        _heartbeat_thread = threading.Thread(
+            target=_heartbeat_loop, args=(_WORKER_ID,), daemon=True
+        )
+        _heartbeat_thread.start()
+        # 注册 SIGTERM 处理器，确保 docker stop 时立即注销
+        signal.signal(signal.SIGTERM, _sigterm_handler)
+        logger.info("Worker 心跳线程已启动 (ID=%s, 间隔=15s)", _WORKER_ID)
+
+
+@worker_shutdown.connect
+def on_worker_shutdown(sender=None, **kwargs):
+    """Worker 关闭时停止心跳并自动注销（Celery 信号，作为补充保障）。"""
+    _deregister_worker()
