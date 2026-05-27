@@ -15,7 +15,8 @@ from app.schemas.worker import (
     WorkerOut,
 )
 from app.api.deps import require_admin
-from app.api.worker_auth import verify_worker_token
+from app.api.worker_auth import verify_worker_token, verify_worker_or_admin
+from app.config import settings
 
 router = APIRouter(prefix="/workers", tags=["Worker管理"])
 
@@ -29,11 +30,16 @@ def register_worker(
     body: WorkerRegisterRequest,
     request: Request,
     db: Session = Depends(get_db),
-    _token: str = Depends(verify_worker_token),
+    _auth: str = Depends(verify_worker_or_admin),
 ):
-    """Worker 注册（幂等：同名 Worker 重新注册时更新记录）。"""
-    token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    """Worker 注册（幂等：同名 Worker 重新注册时更新记录）。
+    Worker 自注册：Bearer WORKER_TOKEN；管理员手动注册：Bearer Admin JWT。"""
+    auth_header = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    if _auth == "admin":
+        # 管理员手动注册 — 存储 WORKER_TOKEN 的 hash，Worker 凭证以此为凭
+        token_hash = hashlib.sha256(settings.worker_token.encode()).hexdigest()
+    else:
+        token_hash = hashlib.sha256(auth_header.encode()).hexdigest()
     now = datetime.now()
 
     existing = db.query(ScanWorker).filter(ScanWorker.worker_name == body.worker_name).first()

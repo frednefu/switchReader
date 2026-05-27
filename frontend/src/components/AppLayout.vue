@@ -82,6 +82,10 @@
           <el-icon><UserFilled /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
+        <el-menu-item v-if="authStore.isAdmin" index="/workers">
+          <el-icon><Cpu /></el-icon>
+          <span>Worker 管理</span>
+        </el-menu-item>
       </el-menu>
 
       <div class="sidebar-footer" v-show="!isCollapse">
@@ -177,6 +181,7 @@ const pageTitle = computed(() => {
     '/history': '历史记录',
     '/asset-profile': '资产画像',
     '/users': '用户管理',
+    '/workers': 'Worker 管理',
     '/profile': '个人设置',
     '/search': '搜索结果',
   }

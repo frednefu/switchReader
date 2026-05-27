@@ -26,6 +26,8 @@ services:
       REDIS_URL: ${REDIS_URL}
       WORKER_TOKEN: ${WORKER_TOKEN}
       TZ: Asia/Shanghai
+      API_BASE_URL: ${API_BASE_URL:-http://backend:8000}
+      WORKER_NAME: ${WORKER_NAME:-}
     volumes:
       - ./backend:/app
       - ./switchReader:/app/switchReader

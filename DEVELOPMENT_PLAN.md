@@ -207,12 +207,33 @@ Worker 关闭时发送 deregister → 标记 offline
 
 ### Phase F: Worker 管理面板
 
-**前端改动：**
+> **已提交** `337b7ef`
+
+> **解决核心问题：管理员无法在前端查看和管理 Worker 节点**
+
+**前端核心文件：**
 
 | 文件 | 内容 |
 |------|------|
-| `frontend/src/views/WorkerManage.vue` | Worker 节点列表：在线状态/当前任务/并发数/启禁用 |
-| `frontend/src/api/workers.js` | Worker API 封装 |
+| `frontend/src/views/WorkerManage.vue` | Worker 管理面板：状态标签（在线绿/忙碌橙/离线灰）、能力标签、并发数、心跳相对时间（超2分钟红色）、自动刷新、注册对话框（名称+版本+能力勾选）、删除确认 |
+| `frontend/src/api/workers.js` | Worker API 封装（getWorkers / getWorker / registerWorker / deleteWorker） |
+
+**后端增强：**
+
+| 文件 | 内容 |
+|------|------|
+| `backend/app/api/worker_auth.py` | 新增 `verify_worker_or_admin` 双认证依赖（Worker Token → Admin JWT 回退） |
+| `backend/app/api/workers.py` | register 端点改用双认证，Admin 手动注册时存储 WORKER_TOKEN hash 作为凭证 |
+| `backend/app/tasks/celery_app.py` | Celery `worker_ready` 信号自动注册 + `worker_shutdown` 信号自动注销 |
+
+**已实现功能：**
+- Worker 容器启动后自动向 API 注册（Celery 信号驱动）
+- Worker 容器关闭时自动注销
+- 管理员可手动注册 Worker（名称、版本、扫描能力勾选）
+- 表格展示：状态彩色标签、能力标签、并发数、心跳相对时间、超时红色警告
+- 状态下拉筛选 + 名称搜索 + 分页
+- 5秒自动刷新 + 开关
+- Admin 专属菜单（侧边栏 `v-if="authStore.isAdmin"`）
 
 ---
 
@@ -252,6 +273,6 @@ Worker 关闭时发送 deregister → 标记 offline
 | Phase C: 扫描步骤日志 + 监控面板 | ✅ 已完成 | `f172f61` |
 | Phase D: WebSocket 进度推送 + 前端稳定性修复 | ✅ 已完成 | `716a6c0`, `0ea20d7` |
 | Phase E: Worker 容器化 | ✅ 已完成 | `b1584a6` |
-| Phase F: Worker 管理面板 | 🔲 下一步 | — |
-| Phase G: Redis 缓存 | 🔲 待开发 | — |
+| Phase F: Worker 管理面板 | ✅ 已完成 | `337b7ef` |
+| Phase G: Redis 缓存 | 🔲 下一步 | — |
 | Phase H: 远程部署 | 🔲 远期规划 | — |

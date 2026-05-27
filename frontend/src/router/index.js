@@ -128,6 +128,12 @@ const routes = [
         meta: { title: '用户管理', admin: true },
       },
       {
+        path: 'workers',
+        name: 'Workers',
+        component: () => import('@/views/WorkerManage.vue'),
+        meta: { title: 'Worker 管理', admin: true },
+      },
+      {
         path: 'asset-profile',
         name: 'AssetProfile',
         component: () => import('@/views/AssetProfile.vue'),
