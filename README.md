@@ -170,6 +170,7 @@ npm run dev
 | GET | /api/scan-logs/{id}/output | 扫描终端输出（实时追加） |
 | DELETE | /api/scan-logs/{id} | 删除单条扫描记录 |
 | DELETE | /api/scan-logs | 批量清除（支持按数据源、按状态过滤） |
+| WS | /ws/scan-progress | WebSocket 扫描进度实时推送（JWT 鉴权 + Redis Pub-Sub） |
 | GET | /api/dashboard/stats | 仪表盘多源统计（含 vCenter/F5/ZDNS/椒图 嵌套数据） |
 | GET | /api/dashboard/subnet-utilization | 地址段利用率 |
 | GET | /api/dashboard/available-ips | 可用 IP 列表 |

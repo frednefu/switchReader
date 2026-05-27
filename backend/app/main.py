@@ -53,6 +53,10 @@ app.add_middleware(
 
 app.include_router(api_router)
 
+# WebSocket 端点 — 扫描进度实时推送
+from app.api.ws import ws_scan_progress
+app.add_websocket_route("/ws/scan-progress", ws_scan_progress)
+
 
 @app.get("/health")
 def health_check():

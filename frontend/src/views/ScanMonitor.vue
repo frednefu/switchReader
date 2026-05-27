@@ -176,8 +176,12 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { getScanLogs, getScanSteps, getScanOutput, deleteScanLog, clearScanLogs } from '@/api/scanLogs'
+import { createScanProgressSocket } from '@/api/ws'
+import { useAuthStore } from '@/store/auth'
 import api from '@/api/index'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+const authStore = useAuthStore()
 
 const items = ref([])
 const loading = ref(false)
@@ -193,6 +197,7 @@ const terminalOutput = ref('')
 const terminalRef = ref(null)
 let refreshTimer = null
 let terminalTimer = null
+let wsSocket = null
 
 const filters = reactive({ source_type: '', status: '' })
 
@@ -371,11 +376,45 @@ async function clearAllFailed() {
   finally { clearingAll.value = false }
 }
 
+function mergeWsItem(data) {
+  const idx = items.value.findIndex(i => i.id === data.id)
+  if (idx >= 0) {
+    // 合并更新：保留 WS 传来的字段，本地保留展开等 UI 状态
+    Object.assign(items.value[idx], data)
+  } else {
+    items.value.unshift(data)
+  }
+  // 限制列表长度
+  if (items.value.length > 100) {
+    items.value = items.value.slice(0, 100)
+  }
+}
+
+function startWebSocket() {
+  if (wsSocket) return
+  const token = authStore.token || localStorage.getItem('token')
+  if (!token) return
+  wsSocket = createScanProgressSocket(token)
+  wsSocket.onMessage((data) => {
+    // WebSocket 推送的是单条任务更新，合并到列表
+    if (items.value.length === 0) return  // 还未初始加载
+    mergeWsItem(data)
+  })
+}
+
+function stopWebSocket() {
+  if (wsSocket) {
+    wsSocket.destroy()
+    wsSocket = null
+  }
+}
+
 function startPolling() {
   stopPolling()
+  // 短轮询作为 fallback：WebSocket 连接时 15s 健康检查，断开时 3s 快速轮询
   refreshTimer = setInterval(() => {
     fetchAll()
-  }, 2000)
+  }, 15000)
 }
 
 function stopPolling() {
@@ -386,18 +425,27 @@ function stopPolling() {
 }
 
 watch(autoRefresh, (val) => {
-  if (val) startPolling()
-  else stopPolling()
+  if (val) {
+    startWebSocket()
+    startPolling()
+  } else {
+    stopWebSocket()
+    stopPolling()
+  }
 })
 
 onMounted(() => {
   fetchAll()
-  if (autoRefresh.value) startPolling()
+  if (autoRefresh.value) {
+    startWebSocket()
+    startPolling()
+  }
 })
 
 onUnmounted(() => {
   stopPolling()
   stopTerminalPoll()
+  stopWebSocket()
 })
 </script>
 

@@ -1,4 +1,4 @@
-"""扫描步骤追踪辅助 — 每个函数独立管理 DB 会话，实时提交，供 API 轮询。"""
+"""扫描步骤追踪辅助 — 每个函数独立管理 DB 会话，实时提交，供 API 轮询/WebSocket 推送。"""
 import logging
 from datetime import datetime
 
@@ -6,6 +6,15 @@ from app.database import SessionLocal
 from app.models.scan_log import ScanLog, ScanStep, StepStatus
 
 logger = logging.getLogger(__name__)
+
+
+def _notify(scan_log_id: int):
+    """DB 变更后通知 WebSocket 订阅者。"""
+    try:
+        from app.services.progress_broker import publish_scan_update
+        publish_scan_update(scan_log_id)
+    except Exception:
+        pass
 
 
 def add_step(scan_log_id: int, step_order: int, step_name: str) -> int:
@@ -25,6 +34,7 @@ def add_step(scan_log_id: int, step_order: int, step_name: str) -> int:
             log.current_step = step_name
         db.commit()
         db.refresh(step)
+        _notify(scan_log_id)
         return step.id
     except Exception:
         db.rollback()
@@ -51,6 +61,7 @@ def finish_step(step_id: int, status: str = "success",
             if error_message:
                 step.error_message = error_message
             db.commit()
+            _notify(step.scan_log_id)
     except Exception:
         db.rollback()
         logger.exception("更新扫描步骤失败 step_id=%s", step_id)
@@ -68,6 +79,7 @@ def update_progress(scan_log_id: int, progress_pct: int, current_step: str | Non
             if current_step:
                 log.current_step = current_step
             db.commit()
+            _notify(scan_log_id)
     except Exception:
         db.rollback()
     finally:
@@ -97,6 +109,7 @@ def append_log(scan_log_id: int, message: str):
             else:
                 log.log_output = line
             db.commit()
+            _notify(scan_log_id)
     except Exception:
         db.rollback()
     finally:
