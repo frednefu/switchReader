@@ -269,8 +269,8 @@ API 验证 TOKEN + IP 白名单 → 返回 Worker ID
 | Phase A: MySQL 切换 | ✅ 已完成 | `ffb403f` |
 | Phase B: Celery + Redis 异步化 | ✅ 已完成 | `147873e` |
 | Phase C: 扫描步骤日志 + 监控面板 | ✅ 已完成 | `f172f61` |
-| Phase D: WebSocket 进度推送 | 🔲 下一步 | — |
-| Phase E: Worker 容器化 | 🔲 待开发 | — |
+| Phase D: WebSocket 进度推送 | ✅ 已完成 | `716a6c0` |
+| Phase E: Worker 容器化 | 🔲 下一步 | — |
 | Phase F: Worker 管理面板 | 🔲 待开发 | — |
 | Phase G: Redis 缓存 | 🔲 待开发 | — |
 | Phase H: 远程部署 | 🔲 远期规划 | — |
