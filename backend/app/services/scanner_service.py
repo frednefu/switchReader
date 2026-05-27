@@ -15,8 +15,11 @@ from app.models.route_table import RouteTable
 from app.config import settings
 from app.services.history_service import detect_changes
 
-# Ensure switchReader is importable
+# Ensure switchReader is importable — try multiple relative paths for different deployment layouts
 _sw_reader_dir = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'switchReader')
+if not os.path.isdir(_sw_reader_dir):
+    # Docker: backend contents are mounted at /app directly, switchReader is at /app/switchReader
+    _sw_reader_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'switchReader')
 if _sw_reader_dir not in sys.path:
     sys.path.insert(0, _sw_reader_dir)
 
