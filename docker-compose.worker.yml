@@ -25,6 +25,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       WORKER_TOKEN: ${WORKER_TOKEN}
+      TZ: Asia/Shanghai
     volumes:
       - ./backend:/app
       - ./switchReader:/app/switchReader
