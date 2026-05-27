@@ -9,8 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["celery", "-A", "app.tasks.celery_app", "worker", \
-     "--concurrency=4", \
-     "--loglevel=info", \
-     "--time-limit=3600", \
-     "--soft-time-limit=3300"]
+CMD celery -A app.tasks.celery_app worker \
+     --concurrency=${WORKER_CONCURRENCY:-4} \
+     --loglevel=info \
+     --time-limit=3600 \
+     --soft-time-limit=3300

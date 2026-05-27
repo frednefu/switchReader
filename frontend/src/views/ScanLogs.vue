@@ -14,6 +14,8 @@
           <el-option label="vCenter" value="vcenter" />
           <el-option label="F5" value="f5" />
           <el-option label="ZDNS" value="zdns" />
+          <el-option label="IP扫描" value="zdns_ip" />
+          <el-option label="椒图" value="qax" />
         </el-select>
       </el-form-item>
       <el-form-item label="状态">
@@ -38,7 +40,7 @@
       </el-table-column>
       <el-table-column label="数据源" width="120">
         <template #default="{ row }">
-          <el-tag :type="sourceTag(row.source_type)" size="small">{{ sourceLabel(row.source_type) }}</el-tag>
+          <el-tag :color="sourceColor(row.source_type)" size="small" effect="dark">{{ sourceLabel(row.source_type) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="source_name" label="设备名称" width="160" show-overflow-tooltip />
@@ -47,6 +49,12 @@
           <el-tag :type="row.triggered_by === 'scheduled' ? '' : 'info'" size="small" effect="plain">
             {{ row.triggered_by === 'scheduled' ? '定时' : '手动' }}
           </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="执行节点" width="130" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span v-if="row.worker_name" class="worker-name-cell">{{ row.worker_name }}</span>
+          <span v-else class="worker-name-pending">-</span>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="90">
@@ -116,13 +124,13 @@ function formatTime(t) {
   return d.toLocaleString('zh-CN', { hour12: false })
 }
 
-function sourceTag(type) {
-  const map = { switch: '', vcenter: 'success', f5: 'warning', zdns: '', qax: 'danger' }
-  return map[type] || ''
+function sourceColor(type) {
+  const map = { switch: '#06b6d4', vcenter: '#f59e0b', f5: '#10b981', zdns: '#6366f1', zdns_ip: '#8b5cf6', qax: '#ef4444' }
+  return map[type] || '#94a3b8'
 }
 
 function sourceLabel(type) {
-  const map = { switch: '交换机', vcenter: 'vCenter', f5: 'F5', zdns: 'ZDNS', qax: '椒图' }
+  const map = { switch: '交换机', vcenter: 'vCenter', f5: 'F5', zdns: 'ZDNS', zdns_ip: 'IP扫描', qax: '椒图' }
   return map[type] || type
 }
 
@@ -203,5 +211,16 @@ onMounted(() => {
 }
 .error-text {
   color: var(--el-color-danger);
+}
+.worker-name-cell {
+  font-size: 12px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  background: var(--color-bg);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+.worker-name-pending {
+  color: var(--color-text-muted);
 }
 </style>

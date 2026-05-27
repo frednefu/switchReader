@@ -35,7 +35,7 @@
         <el-option label="vCenter" value="vcenter" />
         <el-option label="F5" value="f5" />
         <el-option label="ZDNS" value="zdns" />
-        <el-option label="ZDNS IP" value="zdns_ip" />
+        <el-option label="IP扫描" value="zdns_ip" />
         <el-option label="椒图" value="qax" />
       </el-select>
       <el-select v-model="filters.status" placeholder="全部状态" clearable style="width:120px" @change="fetchAll">
@@ -59,12 +59,15 @@
         <div class="card-main" @click="toggleExpand(item)">
           <div class="card-top">
             <div class="card-source">
-              <el-tag :type="sourceTag(item.source_type)" size="small" effect="dark">
+              <el-tag :color="sourceColor(item.source_type)" size="small" effect="dark">
                 {{ sourceLabel(item.source_type) }}
               </el-tag>
               <span class="device-name">{{ item.source_name }}</span>
             </div>
             <div class="card-meta">
+              <span v-if="item.worker_name" class="worker-name" :title="'执行节点: ' + item.worker_name">
+                <el-icon><Monitor /></el-icon> {{ item.worker_name }}
+              </span>
               <span v-if="item.status === 'running'" class="elapsed">
                 <span class="pulse-dot" :class="{ 'pulse-slow': isQueued(item) }"></span>
                 {{ elapsedTime(item.started_at) }}
@@ -205,13 +208,13 @@ function isQueued(item) {
   return cs.includes('队列') || cs.includes('等待')
 }
 
-function sourceTag(type) {
-  const map = { switch: '', vcenter: 'success', f5: 'warning', zdns: '', zdns_ip: 'info', qax: 'danger' }
-  return map[type] || 'info'
+function sourceColor(type) {
+  const map = { switch: '#06b6d4', vcenter: '#f59e0b', f5: '#10b981', zdns: '#6366f1', zdns_ip: '#8b5cf6', qax: '#ef4444' }
+  return map[type] || '#94a3b8'
 }
 
 function sourceLabel(type) {
-  const map = { switch: '交换机', vcenter: 'vCenter', f5: 'F5', zdns: 'ZDNS', zdns_ip: 'ZDNS IP', qax: '椒图' }
+  const map = { switch: '交换机', vcenter: 'vCenter', f5: 'F5', zdns: 'ZDNS', zdns_ip: 'IP扫描', qax: '椒图' }
   return map[type] || type
 }
 
@@ -533,6 +536,18 @@ if (import.meta.hot) {
   gap: 10px;
   font-size: 13px;
   color: var(--color-text-secondary);
+}
+
+.worker-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
 }
 
 .elapsed {

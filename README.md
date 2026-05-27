@@ -107,20 +107,20 @@ docker-compose exec backend python seed.py
                           │      10.0.0.1:8000        │
                           └────────────┬─────────────┘
                                        │
-                         Redis 任务队列 (5 个数据源)
-                         ┌──────────┬──┴──┬──────────┐
-                         │          │     │          │
-                    queue:scan:  switch vcenter  f5  zdns  qax
-                         │          │     │          │
-              ┌──────────┼──────────┼─────┼──────────┼──────────┐
-              │          │          │     │          │          │
-         ┌────┴────┐ ┌───┴────┐ ┌──┴───┐ ┌┴──────┐ ┌──┴────┐
-         │Worker 1 │ │Worker 2│ │Worker│ │Worker │ │Worker │
-         │10.0.0.2 │ │10.0.0.3│ │  N   │ │  N+1  │ │  N+2  │
-         │snmp     │ │vcenter │ │ f5   │ │ zdns  │ │  qax  │
-         │vcenter  │ │ f5     │ │ zdns │ │  qax  │ │ snmp  │
-         │f5,zdns  │ │ zdns   │ │ qax  │ │ snmp  │ │vcenter│
-         └─────────┘ └────────┘ └──────┘ └───────┘ └───────┘
+                         Redis 任务队列 (6 个数据源)
+                         ┌──────────┬──┴────────┬──────────┐
+                         │          │     │          │        │
+                    queue:scan:  switch vcenter  f5  zdns zdns_ip qax
+                         │          │     │          │        │
+              ┌──────────┼──────────┼─────┼──────────┼────────┼──────────┐
+              │          │          │     │          │        │          │
+         ┌────┴────┐ ┌───┴────┐ ┌──┴───┐ ┌┴──────┐ ┌─┴────┐ ┌──┴────┐
+         │Worker 1 │ │Worker 2│ │Worker│ │Worker │ │Worker│ │Worker │
+         │10.0.0.2 │ │10.0.0.3│ │  N   │ │  N+1  │ │ N+2  │ │  N+3  │
+         │snmp     │ │vcenter │ │ f5   │ │ zdns  │ │zdnsip│ │  qax  │
+         │vcenter  │ │ f5     │ │ zdns │ │zdns_ip│ │ qax  │ │ snmp  │
+         │f5,zdns  │ │zdns_ip │ │ qax  │ │ snmp  │ │vcenter│ │ f5    │
+         └─────────┘ └────────┘ └──────┘ └───────┘ └──────┘ └───────┘
               │          │          │         │          │
               │          │          │         │          │
               └──────────┴──────────┴─────────┴──────────┘
@@ -132,6 +132,23 @@ docker-compose exec backend python seed.py
 **核心节点** 负责 Web 界面、API 网关、数据库、Redis 消息队列。Worker 节点仅运行 Celery 消费者进程，无需数据库或 Web 服务。
 
 **Worker 节点** 均使用同一 Docker 镜像，所有扫描能力内置。启动时通过 `capabilities.task_types` 声明要处理的数据源类型，可声明全部或部分类型。多个 Worker 声明相同类型即可实现该类型的多实例并行消费。
+
+**6 种任务类型 → 独立队列**：
+
+| 任务类型 | 队列名 | 说明 |
+|----------|--------|------|
+| switch | `scan:switch` | 交换机 SNMP 扫描 |
+| vcenter | `scan:vcenter` | vCenter 虚拟机采集 |
+| f5 | `scan:f5` | F5 负载均衡配置采集 |
+| zdns | `scan:zdns` | ZDNS 域名解析记录采集 |
+| zdns_ip | `scan:zdns_ip` | ZDNS IP 可达性检测 |
+| qax | `scan:qax` | 椒图主机安全信息采集 |
+
+Worker 根据 `WORKER_TASK_TYPES` 环境变量订阅对应队列，只消费能力范围内的任务。任务提交时自动路由到对应队列，队列无人订阅则任务排队等待。
+
+**并发计数器（跨进程共享）**：Worker 使用 prefork 进程池，任务在子进程中执行。通过 `multiprocessing.Value` 实现主进程心跳线程与子进程的计数器共享，确保心跳上报的 `current_tasks` 实时反映实际并发数。任务开始 → counter+1、status=busy，任务结束 → counter-1、status=online。
+
+**扫描日志追溯**：每个任务的 `scan_log` 记录 `worker_name` 字段，前端扫描监控和扫描日志页面可查看每条记录由哪个 Worker 节点执行。
 
 #### 注册认证流程
 
@@ -153,6 +170,7 @@ Worker 进入就绪状态，开始消费 Redis 任务队列
     │
     ├─ 定期心跳: POST /api/workers/{id}/heartbeat (每 15s)
     │    Body: { current_tasks, status }
+    │    Status: "busy" 当 current_tasks > 0，否则 "online"
     │
     ▼
 Worker 关闭 (SIGTERM)
@@ -160,6 +178,10 @@ Worker 关闭 (SIGTERM)
     ├─ SIGTERM 信号处理器 → 即时调用 deregister
     └─ Celery worker_shutdown 信号 → 补充保障
          → 状态标记为 offline，current_tasks 清零
+    │
+    ▼
+API 端定时清理 (每 30s)
+    └─ 心跳超过 45 秒未更新 → 标记为 offline
 ```
 
 #### 认证机制
@@ -206,6 +228,8 @@ docker run -d \
   -e WORKER_TOKEN="<shared-secret>" \
   -e API_BASE_URL="http://host.docker.internal:8000" \
   -e WORKER_NAME="worker-02" \
+  -e WORKER_CONCURRENCY="8" \
+  -e WORKER_TASK_TYPES="switch,vcenter,f5,zdns,zdns_ip,qax" \
   -e TZ="Asia/Shanghai" \
   -v "$(pwd)/backend:/app" \
   -v "$(pwd)/switchReader:/app/switchReader" \
@@ -240,6 +264,8 @@ docker run -d \
 | `API_BASE_URL` | 核心节点 API 地址 | `http://backend:8000` |
 | `WORKER_NAME` | Worker 唯一名称 | 主机名 |
 | `WORKER_VERSION` | Worker 版本标识 | `2.0.0` |
+| `WORKER_CONCURRENCY` | 并发任务数（需与 --concurrency 一致） | `4` |
+| `WORKER_TASK_TYPES` | 该 Worker 处理的数据源（逗号分隔） | `switch,vcenter,f5,zdns,zdns_ip,qax` |
 | `REDIS_PASSWORD` | Redis 认证密码，所有节点必须一致 | 必填 |
 | `REDIS_URL` | Redis 连接串（含密码） | `redis://:password@redis:6379/0` |
 
@@ -248,7 +274,7 @@ docker run -d \
 - **Redis 密码认证**：跨主机通信必须使用 `requirepass`，`REDIS_URL` 格式为 `redis://:密码@主机:6379/0`
 - Worker 通过 `API_BASE_URL` 访问核心节点 API，确保网络可达（防火墙放行 8000 + 6379 端口）
 - Worker 容器与核心节点共享 Redis 队列，Redis 连接信息从 `.env` 读取
-- Worker 意外断连后，心跳超时（>2 分钟）在管理面板显示为红色警告
+- Worker 意外断连后，心跳超时（45 秒）自动标记为 offline，前端状态变更为离线（灰色）
 
 #### 本地开发
 

@@ -43,6 +43,7 @@ class ScanLog(Base):
     progress_pct = Column(Integer, default=0)
     current_step = Column(String(128), default="")
     log_output = Column(Text, nullable=True)  # 终端风格日志输出
+    worker_name = Column(String(128), nullable=True)  # 执行此扫描的 Worker 名称
 
     switch = relationship("Switch", back_populates="scan_logs")
     steps = relationship("ScanStep", back_populates="scan_log", cascade="all, delete-orphan")

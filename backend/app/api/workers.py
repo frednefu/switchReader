@@ -58,6 +58,8 @@ def register_worker(
             existing.status = "pending"
         existing.capabilities = body.capabilities
         existing.version = body.version or ""
+        if body.max_tasks is not None:
+            existing.max_tasks = body.max_tasks
         existing.last_heartbeat = now
         db.commit()
         return WorkerRegisterResponse(
@@ -73,6 +75,7 @@ def register_worker(
         status=initial_status,
         capabilities=body.capabilities,
         version=body.version or "",
+        max_tasks=body.max_tasks or 4,
         last_heartbeat=now,
     )
     db.add(worker)

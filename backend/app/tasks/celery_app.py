@@ -1,5 +1,6 @@
 """Celery 应用实例 — Redis broker + backend，含 Worker 自动注册/注销 + 定时心跳。"""
 import hashlib
+import multiprocessing
 import os
 import signal
 import socket
@@ -10,11 +11,36 @@ import json
 import logging
 
 from celery import Celery
-from celery.signals import worker_ready, worker_shutdown
+from celery.signals import worker_ready, worker_shutdown, task_prerun, task_postrun
+from kombu import Queue
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# 任务类型 → 队列名映射
+_TASK_TYPE_QUEUE = {
+    "switch": "scan:switch",
+    "vcenter": "scan:vcenter",
+    "f5": "scan:f5",
+    "zdns": "scan:zdns",
+    "zdns_ip": "scan:zdns_ip",
+    "qax": "scan:qax",
+}
+
+# 任务函数路径 → 队列名路由
+_TASK_ROUTES = {
+    "app.tasks.scan_tasks.scan_switch_task": {"queue": "scan:switch"},
+    "app.tasks.scan_tasks.scan_vcenter_task": {"queue": "scan:vcenter"},
+    "app.tasks.scan_tasks.scan_f5_task": {"queue": "scan:f5"},
+    "app.tasks.scan_tasks.scan_zdns_task": {"queue": "scan:zdns"},
+    "app.tasks.scan_tasks.scan_zdns_ip_task": {"queue": "scan:zdns_ip"},
+    "app.tasks.scan_tasks.scan_qax_task": {"queue": "scan:qax"},
+}
+
+# Worker 只订阅自己能力范围内的队列
+_WORKER_TASK_TYPES = [t.strip() for t in os.environ.get("WORKER_TASK_TYPES", "switch,vcenter,f5,zdns,zdns_ip,qax").split(",") if t.strip()]
+_WORKER_QUEUES = [Queue(name=q, routing_key=q) for t, q in _TASK_TYPE_QUEUE.items() if t in _WORKER_TASK_TYPES]
 
 celery_app = Celery(
     "omniview",
@@ -34,6 +60,9 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     result_expires=3600,
     broker_connection_retry_on_startup=True,
+    task_queues=_WORKER_QUEUES,
+    task_routes=_TASK_ROUTES,
+    task_create_missing_queues=True,
 )
 
 
@@ -43,12 +72,15 @@ def _register_worker():
     worker_name = os.environ.get("WORKER_NAME", socket.gethostname())
     version = os.environ.get("WORKER_VERSION", "2.0.0")
     worker_token = settings.worker_token
+    concurrency = int(os.environ.get("WORKER_CONCURRENCY", "4"))
+    task_types = _WORKER_TASK_TYPES
 
     try:
         data = json.dumps({
             "worker_name": worker_name,
-            "capabilities": {"task_types": ["switch", "vcenter", "f5", "zdns", "qax"]},
+            "capabilities": {"task_types": task_types},
             "version": version,
+            "max_tasks": concurrency,
         }).encode()
         req = urllib.request.Request(
             f"{api_base}/api/workers/register",
@@ -68,22 +100,28 @@ def _register_worker():
         return None
 
 
+# 跨进程共享任务计数器 — prefork 池下主进程心跳能读取子进程的变更
+_task_counter = multiprocessing.Value('i', 0)
+
+
+@task_prerun.connect
+def _on_task_start(sender=None, **kwargs):
+    with _task_counter.get_lock():
+        _task_counter.value += 1
+
+
+@task_postrun.connect
+def _on_task_end(sender=None, **kwargs):
+    with _task_counter.get_lock():
+        _task_counter.value = max(0, _task_counter.value - 1)
+
+
 def _send_heartbeat(worker_id):
     """向 API 发送心跳（在当前线程中执行）。"""
     api_base = os.environ.get("API_BASE_URL", "http://backend:8000")
     worker_token = settings.worker_token
     try:
-        # 从 Celery inspect 获取当前活跃任务数
-        current_tasks = 0
-        try:
-            inspector = celery_app.control.inspect()
-            active = inspector.active()
-            if active:
-                for worker_name, tasks in active.items():
-                    current_tasks += len(tasks)
-        except Exception:
-            pass
-
+        current_tasks = _task_counter.value
         status = "busy" if current_tasks > 0 else "online"
         data = json.dumps({"current_tasks": current_tasks, "status": status}).encode()
         req = urllib.request.Request(

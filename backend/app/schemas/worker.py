@@ -8,6 +8,7 @@ class WorkerRegisterRequest(BaseModel):
     worker_name: str
     capabilities: Optional[dict] = None
     version: Optional[str] = None
+    max_tasks: Optional[int] = None
 
 
 class WorkerRegisterResponse(BaseModel):

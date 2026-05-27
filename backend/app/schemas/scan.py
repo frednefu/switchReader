@@ -71,6 +71,7 @@ class ScanLogOut(BaseModel):
     duration_seconds: Optional[float] = None
     progress_pct: int = 0
     current_step: str = ""
+    worker_name: Optional[str] = None
 
     class Config:
         from_attributes = True

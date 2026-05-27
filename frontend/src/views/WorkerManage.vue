@@ -49,7 +49,7 @@
         </el-table-column>
         <el-table-column label="能力" min-width="200">
           <template #default="{ row }">
-            <el-tag v-for="t in taskTypes(row)" :key="t" size="small" style="margin-right: 4px;">
+            <el-tag v-for="t in taskTypes(row)" :key="t" size="small" effect="dark" :color="taskColor(t)" style="margin-right: 4px;">
               {{ taskTypeLabel(t) }}
             </el-tag>
             <span v-if="!taskTypes(row).length" style="color: #909399;">-</span>
@@ -106,6 +106,7 @@
             <el-checkbox label="vcenter">vCenter</el-checkbox>
             <el-checkbox label="f5">F5</el-checkbox>
             <el-checkbox label="zdns">ZDNS</el-checkbox>
+            <el-checkbox label="zdns_ip">IP扫描</el-checkbox>
             <el-checkbox label="qax">椒图</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
@@ -136,7 +137,7 @@ const autoRefresh = ref(true)
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const formRef = ref(null)
-const form = reactive({ worker_name: '', version: '2.0.0', task_types: ['switch', 'vcenter', 'f5', 'zdns', 'qax'] })
+const form = reactive({ worker_name: '', version: '2.0.0', task_types: ['switch', 'vcenter', 'f5', 'zdns', 'zdns_ip', 'qax'] })
 const formRules = {
   worker_name: [{ required: true, message: '请输入 Worker 名称', trigger: 'blur' }],
 }
@@ -154,7 +155,11 @@ function statusLabel(s) {
 }
 
 const _TASK_LABELS = {
-  switch: '交换机', vcenter: 'vCenter', f5: 'F5', zdns: 'ZDNS', qax: '椒图',
+  switch: '交换机', vcenter: 'vCenter', f5: 'F5', zdns: 'ZDNS', zdns_ip: 'IP扫描', qax: '椒图',
+}
+
+const _TASK_COLORS = {
+  switch: '#06b6d4', vcenter: '#f59e0b', f5: '#10b981', zdns: '#6366f1', zdns_ip: '#8b5cf6', qax: '#ef4444',
 }
 
 function taskTypes(row) {
@@ -163,6 +168,10 @@ function taskTypes(row) {
 
 function taskTypeLabel(t) {
   return _TASK_LABELS[t] || t
+}
+
+function taskColor(t) {
+  return _TASK_COLORS[t] || '#94a3b8'
 }
 
 function heartbeatStale(row) {
@@ -217,7 +226,7 @@ async function handleDelete(row) {
 function resetForm() {
   form.worker_name = ''
   form.version = '2.0.0'
-  form.task_types = ['switch', 'vcenter', 'f5', 'zdns', 'qax']
+  form.task_types = ['switch', 'vcenter', 'f5', 'zdns', 'zdns_ip', 'qax']
   formRef.value?.resetFields()
 }
 

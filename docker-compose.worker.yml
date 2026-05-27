@@ -28,6 +28,8 @@ services:
       TZ: Asia/Shanghai
       API_BASE_URL: ${API_BASE_URL:-http://backend:8000}
       WORKER_NAME: ${WORKER_NAME:-}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+      WORKER_TASK_TYPES: ${WORKER_TASK_TYPES:-switch,vcenter,f5,zdns,zdns_ip,qax}
     volumes:
       - ./backend:/app
       - ./switchReader:/app/switchReader

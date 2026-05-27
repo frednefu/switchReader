@@ -726,7 +726,7 @@ function renderScanBar() {
   if (scanBarEmpty.value || !scanBarRef.value) return
   if (!scanBarChart) scanBarChart = echarts.init(scanBarRef.value)
   const data = stats.scan_by_source
-  const colors = { switch: '#6366f1', vcenter: '#06b6d4', f5: '#f97316', zdns: '#14b8a6' }
+  const colors = { switch: '#06b6d4', vcenter: '#f59e0b', f5: '#10b981', zdns: '#6366f1', zdns_ip: '#8b5cf6', qax: '#ef4444' }
   scanBarChart.setOption({
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
     grid: { left: '3%', right: '4%', top: '5%', bottom: '5%', containLabel: true },
