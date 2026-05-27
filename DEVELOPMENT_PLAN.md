@@ -92,83 +92,89 @@ Frontend ──► FastAPI ──► MySQL 8.0
 
 ---
 
-### Phase C: 扫描步骤日志
+### Phase C: 扫描步骤日志 + 实时监控面板 ✅
+
+> **已提交** `f172f61`
 
 > **解决核心问题：无法直观查看扫描进度和数据获取过程**
 
-**数据库新增表：**
+**数据库改动：**
 
-```sql
-CREATE TABLE scan_steps (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    scan_log_id INT NOT NULL,
-    step_order INT NOT NULL,
-    step_name VARCHAR(128),           -- "ARP 表采集"、"FDB 采集"等
-    status ENUM('pending','running','success','failed'),
-    items_total INT DEFAULT 0,
-    items_processed INT DEFAULT 0,
-    started_at DATETIME,
-    completed_at DATETIME,
-    error_message TEXT,
-    FOREIGN KEY (scan_log_id) REFERENCES scan_logs(id) ON DELETE CASCADE
-);
-```
+- `scan_logs` 表新增 `progress_pct`、`current_step`、`log_output`、`worker_id` 字段
+- 新增 `scan_steps` 表：`scan_log_id`、`step_order`、`step_name`、`status`、`items_total`、`items_processed`、`error_message`
 
-**scan_logs 表补充字段：**
-
-```sql
-ALTER TABLE scan_logs ADD COLUMN progress_pct INT DEFAULT 0;
-ALTER TABLE scan_logs ADD COLUMN current_step VARCHAR(128);
-ALTER TABLE scan_logs ADD COLUMN worker_id INT;
-```
-
-**后端改动：**
+**后端核心文件：**
 
 | 文件 | 内容 |
 |------|------|
-| `backend/app/models/scan_log.py` | 新增字段 + ScanStep 模型 |
-| `backend/app/schemas/scan_log.py` | 新增 Step 响应 Schema |
-| `backend/app/api/scan_logs.py` | `GET /scan-logs/{id}/steps` 端点 |
-| 各 scanner_service | 在每个采集步骤插入 ScanStep 并更新 progress_pct |
+| `backend/app/services/scan_step_service.py` | 统一扫描步骤追踪服务：`mark_queued()`/`mark_started()`/`update_progress()`/`append_log()`/`add_step()`/`finish_step()` |
+| `backend/app/models/scan_log.py` | ScanLog 扩展字段 + ScanStep 模型（独立 DB 会话） |
+| `backend/app/api/scan_logs.py` | `GET /{id}/steps`、`GET /{id}/output`、`DELETE /{id}`、批量清除支持 `status` 过滤 |
+| 6 个 scanner_service | 增强日志输出（VM 分布/OS 统计/Pool 状态/记录类型/内外网分布）和细粒度进度更新（7-10 节点） |
+| 修复各扫描器 `scan_log` 始终 `success` | 新增 `scan_successful` 标志，异常路径正确标记 `failed` |
+
+**前端核心文件：**
+
+| 文件 | 内容 |
+|------|------|
+| `frontend/src/views/ScanMonitor.vue` | 实时任务监控面板：进度卡片 + 展开步骤列表 + 终端输出 + 取消/删除/全部清除 |
+| `frontend/src/api/scanLogs.js` | 新增 `deleteScanLog`、`clearScanLogs(status)` |
+| `frontend/src/router/index.js` | 新增 `/scan-monitor` 路由 |
+
+**已实现功能：**
+- 6 类数据源扫描进度卡片实时展示（进度条 + 当前步骤 + 已用时间）
+- 点击展开：分步详情（步骤状态 + 成功/失败计数）+ 终端实时输出
+- 2 秒自动轮询刷新 + 手动刷新 + 运行中任务计数
+- 按数据源/状态筛选，单条删除 + 一键清除全部失败记录
+- 扫描器终端输出包含丰富统计信息（采集数量/分布/明细快照）
 
 ---
 
-### Phase D: WebSocket 扫描进度推送
+### Phase D: WebSocket 进度推送
 
-> **前端实时查看扫描进度**
+> **将 ScanMonitor 的 2 秒轮询替换为 WebSocket 实时推送，消除延迟和无效请求**
+
+**现状：** ScanMonitor.vue 已完整实现，目前通过 `setInterval(fetchAll, 2000)` 轮询 `/api/scan-logs` 获取进度。
+
+**改造目标：**
+
+```
+当前：前端 ──每2秒──► GET /api/scan-logs ──► 返回全量列表
+改造：前端 ──WebSocket──► /ws/scan-progress ──► 仅推送变化的任务
+```
 
 **后端改动：**
 
 | 文件 | 内容 |
 |------|------|
-| `backend/app/api/ws.py` | WebSocket 端点 `/ws/scan-progress` |
-| `backend/app/services/progress_broker.py` | Redis Pub-Sub 订阅 → WebSocket 推送 |
+| `backend/app/api/ws.py` | WebSocket 端点 `/ws/scan-progress`：认证 JWT token，订阅 Redis channel |
+| `backend/app/services/progress_broker.py` | Redis Pub-Sub 发布/订阅：`scan_step_service` 更新进度时发布消息到 `channel:scan:{scan_log_id}` |
 
 **前端改动：**
 
 | 文件 | 内容 |
 |------|------|
-| `frontend/src/views/ScanMonitor.vue` | 新建扫描监控页：所有扫描任务实时进度列表 |
-| `frontend/src/components/ScanProgressBar.vue` | 可复用进度条组件（含步骤明细） |
-| `frontend/src/router/` | 添加路由 `/scan-monitor` |
-| `frontend/src/api/` | WebSocket 连接管理 |
+| `frontend/src/views/ScanMonitor.vue` | 替换 `setInterval` 轮询为 WebSocket 连接，接收增量更新并合并到 items 列表 |
+| `frontend/src/api/ws.js` | WebSocket 封装：自动重连、心跳保活、JWT 鉴权 |
 
-**页面设计：**
+**消息格式（JSON）：**
+
+```json
+{"id": 42, "status": "running", "progress_pct": 65, "current_step": "ARP采集完成",
+ "hosts_found": 320, "duration_seconds": 8.3, "steps": [...], "log_output_tail": "..."}
+```
+
+**优势：**
+- 进度更新零延迟（Worker 写 DB → 发布 Redis → WebSocket 推前端，<100ms）
+- 减少 HTTP 请求（从每 2 秒 1 次变成 0 次轮询）
+- 支持多客户端同时监控（每个浏览器连接独立 WebSocket）
+- 保留短轮询作为 fallback（WebSocket 断开时自动降级）
+
+**Redis Pub-Sub Channel 设计：**
 
 ```
-┌─ 扫描监控 ──────────────────────────────────────────────┐
-│  [数据源筛选] [状态筛选]                    自动刷新: 2s │
-│  ─────────────────────────────────────────────────────── │
-│  交换机   switch-1  运行中  ████████░░ 80%  12s          │
-│           └─ ARP 采集        已完成  200/200             │
-│           └─ FDB 采集        运行中  150/230             │
-│           └─ 路由表          等待中                      │
-│  交换机   switch-2  运行中  ████░░░░░░ 40%  28s          │
-│  vCenter  vc-1      排队中                              │
-│  F5       f5-1      成功    ██████████ 100% 45s          │
-│  ZDNS     zdns-1    失败    — 连接超时                   │
-│  [全部暂停] [重试失败]                                   │
-└─────────────────────────────────────────────────────────┘
+channel:scan:{scan_log_id}    — 单个任务进度更新
+channel:scan:list              — 任务列表变更（新增/完成）
 ```
 
 ---
@@ -262,8 +268,8 @@ API 验证 TOKEN + IP 白名单 → 返回 Worker ID
 |------|------|------|
 | Phase A: MySQL 切换 | ✅ 已完成 | `ffb403f` |
 | Phase B: Celery + Redis 异步化 | ✅ 已完成 | `147873e` |
-| Phase C: 扫描步骤日志 | 🔲 下一步 | — |
-| Phase D: WebSocket 进度推送 | 🔲 待开发 | — |
+| Phase C: 扫描步骤日志 + 监控面板 | ✅ 已完成 | `f172f61` |
+| Phase D: WebSocket 进度推送 | 🔲 下一步 | — |
 | Phase E: Worker 容器化 | 🔲 待开发 | — |
 | Phase F: Worker 管理面板 | 🔲 待开发 | — |
 | Phase G: Redis 缓存 | 🔲 待开发 | — |
