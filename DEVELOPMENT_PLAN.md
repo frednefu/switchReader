@@ -52,7 +52,9 @@ Frontend ──► FastAPI ──► MySQL 8.0
 
 ---
 
-### Phase B: Celery + Redis 扫描异步化
+### Phase B: Celery + Redis 扫描异步化 ✅
+
+> **已提交** `147873e`
 
 > **解决核心问题：发起扫描时前台响应慢**
 
@@ -259,8 +261,8 @@ API 验证 TOKEN + IP 白名单 → 返回 Worker ID
 | 阶段 | 状态 | 提交 |
 |------|------|------|
 | Phase A: MySQL 切换 | ✅ 已完成 | `ffb403f` |
-| Phase B: Celery + Redis 异步化 | 🔲 下一步 | — |
-| Phase C: 扫描步骤日志 | 🔲 待开发 | — |
+| Phase B: Celery + Redis 异步化 | ✅ 已完成 | `147873e` |
+| Phase C: 扫描步骤日志 | 🔲 下一步 | — |
 | Phase D: WebSocket 进度推送 | 🔲 待开发 | — |
 | Phase E: Worker 容器化 | 🔲 待开发 | — |
 | Phase F: Worker 管理面板 | 🔲 待开发 | — |

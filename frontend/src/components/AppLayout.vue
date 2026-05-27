@@ -66,6 +66,10 @@
           <el-icon><Grid /></el-icon>
           <span>地址段管理</span>
         </el-menu-item>
+        <el-menu-item index="/scan-monitor">
+          <el-icon><TrendCharts /></el-icon>
+          <span>扫描监控</span>
+        </el-menu-item>
         <el-menu-item index="/scan-logs">
           <el-icon><Tickets /></el-icon>
           <span>扫描日志</span>
@@ -168,6 +172,7 @@ const pageTitle = computed(() => {
     '/results': '扫描结果',
     '/routes': '路由表',
     '/subnets': '地址段管理',
+    '/scan-monitor': '扫描监控',
     '/scan-logs': '扫描日志',
     '/history': '历史记录',
     '/asset-profile': '资产画像',

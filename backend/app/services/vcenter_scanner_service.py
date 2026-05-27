@@ -517,9 +517,11 @@ def _fill_ips_from_mac(db, vcenter_id: int):
 async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = None):
     """异步扫描入口 — 在线程池中运行同步 pyVmomi 调用。"""
     from app.services.history_service import detect_vcenter_changes
+    from app.services.scan_step_service import add_step, finish_step, update_progress, mark_started, append_log
     from app.models.scan_log import ScanLog, ScanStatus
 
     start_time = datetime.now()
+    scan_successful = True
 
     db = SessionLocal()
     vc = None
@@ -531,15 +533,67 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
         if not vc or not vc.is_active:
             return
 
+        if scan_log_id:
+            mark_started(scan_log_id)
+            append_log(scan_log_id, f"开始扫描 vCenter {vc.host}")
+
         vc.last_scan_status = "running"
         vc.last_scan_error = None
         db.commit()
+
+        # 步骤 1：连接 vCenter 并采集
+        if scan_log_id:
+            update_progress(scan_log_id, 5, "连接 vCenter 并采集数据")
+            step1_id = add_step(scan_log_id, 1, "连接 vCenter 并采集数据")
 
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(None, _do_vcenter_scan, vc.host, vc.username, vc.password, vc.port)
         rows = result["vms"]
         esxi_hosts = result["hosts"]
         datastores = result["datastores"]
+
+        if scan_log_id:
+            # 统计 VM 分布
+            powered_on = sum(1 for r in rows if r.get("power_state") == "poweredOn")
+            powered_off = len(rows) - powered_on
+            with_ip = sum(1 for r in rows if r.get("ip_address"))
+            without_ip = len(rows) - with_ip
+            os_names = set(r.get("os_name", "") for r in rows if r.get("os_name"))
+            os_summary = ", ".join(sorted(os_names)[:8])
+            if len(os_names) > 8:
+                os_summary += f" ...等{len(os_names)}种"
+
+            append_log(scan_log_id, f"数据采集完成: VM={len(rows)} (开机{powered_on}/关机{powered_off}, 有IP{with_ip}/无IP{without_ip})")
+            if os_summary:
+                append_log(scan_log_id, f"VM 操作系统类型: {os_summary}")
+
+            # ESXi 主机统计
+            connected_hosts = sum(1 for h in esxi_hosts if h.get("status") == "connected")
+            total_mem = sum(h.get("memory_gb", 0) for h in esxi_hosts)
+            total_cpu = sum(h.get("logical_processors", 0) for h in esxi_hosts)
+            if esxi_hosts:
+                append_log(scan_log_id, f"ESXi 主机: {len(esxi_hosts)} 台 (在线{connected_hosts}), CPU {total_cpu}核, 内存 {total_mem:.0f}GB")
+                for h in esxi_hosts[:5]:
+                    append_log(scan_log_id, f"  - {h['host_name']}: {h['hypervisor_type'][:40]}, {h['logical_processors']}核/{h['memory_gb']:.0f}GB, {h['status']}")
+                if len(esxi_hosts) > 5:
+                    append_log(scan_log_id, f"  ... 共 {len(esxi_hosts)} 台")
+
+            # Datastore 统计
+            total_cap = sum(d.get("capacity_gb", 0) for d in datastores)
+            total_free = sum(d.get("free_gb", 0) for d in datastores)
+            shared = sum(1 for d in datastores if d.get("storage_type") in ("共享存储", "共享NAS"))
+            local = len(datastores) - shared
+            if datastores:
+                append_log(scan_log_id, f"Datastore: {len(datastores)} 个 (共享{shared}/本地{local}), 总容量 {total_cap:.0f}GB, 可用 {total_free:.0f}GB")
+                for d in datastores[:5]:
+                    append_log(scan_log_id, f"  - {d['datastore_name']}: {d['ds_type']}, {d['capacity_gb']:.0f}GB/{d['free_gb']:.0f}GB 可用, {d['storage_type']}")
+                if len(datastores) > 5:
+                    append_log(scan_log_id, f"  ... 共 {len(datastores)} 个")
+
+            update_progress(scan_log_id, 25, "数据分析完成")
+            finish_step(step1_id, "success", len(rows) + len(esxi_hosts) + len(datastores),
+                        len(rows) + len(esxi_hosts) + len(datastores))
+            update_progress(scan_log_id, 35, "开始写入数据库")
 
         # 新 session 写数据（快照 → DELETE → INSERT → diff → 历史）
         write_db = SessionLocal()
@@ -553,24 +607,47 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
                 old_by_key[(r.vm_name, r.vcenter_id)] = r
 
             # DELETE + INSERT VMs
+            if scan_log_id:
+                step2_id = add_step(scan_log_id, 2, "VM 清单写入")
+                append_log(scan_log_id, f"写入 {len(rows)} 条 VM 记录...")
             write_db.query(VMInventory).filter(VMInventory.vcenter_id == vcenter_id).delete()
             for r in rows:
                 write_db.add(VMInventory(vcenter_id=vcenter_id, **r))
+            if scan_log_id:
+                finish_step(step2_id, "success", len(rows), len(rows))
+                update_progress(scan_log_id, 50, "VM 清单写入完成")
 
             # ESXi 主机：DELETE + INSERT
+            if scan_log_id:
+                step3_id = add_step(scan_log_id, 3, "ESXi 主机写入")
             write_db.query(EsxiHost).filter(EsxiHost.vcenter_id == vcenter_id).delete()
             for h in esxi_hosts:
                 write_db.add(EsxiHost(vcenter_id=vcenter_id, **h))
             host_count = len(esxi_hosts)
+            if scan_log_id:
+                finish_step(step3_id, "success", host_count, host_count)
+                update_progress(scan_log_id, 60, "ESXi 主机写入完成")
 
             # Datastore：DELETE + INSERT
+            if scan_log_id:
+                step4_id = add_step(scan_log_id, 4, "存储器写入")
             write_db.query(Datastore).filter(Datastore.vcenter_id == vcenter_id).delete()
             for ds in datastores:
                 write_db.add(Datastore(vcenter_id=vcenter_id, **ds))
             ds_count = len(datastores)
+            if scan_log_id:
+                finish_step(step4_id, "success", ds_count, ds_count)
+                update_progress(scan_log_id, 70, "存储器写入完成")
 
             # 扫描后处理：通过 MAC 从交换机 scan_results 补充缺失 IP
+            if scan_log_id:
+                step5_id = add_step(scan_log_id, 5, "MAC→IP 回填")
             _fill_ips_from_mac(write_db, vcenter_id)
+            if scan_log_id:
+                finish_step(step5_id, "success")
+                update_progress(scan_log_id, 80, "MAC→IP 回填完成")
+
+            write_db.flush()  # 确保 INSERT 已刷入，避免 query 返回旧缓存数据
 
             # 构建新数据映射用于 diff
             new_rows = write_db.query(VMInventory).filter(
@@ -581,7 +658,12 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
                 new_by_key[(r.vm_name, r.vcenter_id)] = r
 
             # 写入历史
+            if scan_log_id:
+                step6_id = add_step(scan_log_id, 6, "变更检测")
             detect_vcenter_changes(write_db, vcenter_id, vc.name, old_by_key, new_by_key)
+            if scan_log_id:
+                finish_step(step6_id, "success")
+                update_progress(scan_log_id, 90, "变更检测完成")
 
             write_db.commit()
             count = len(rows)
@@ -602,8 +684,12 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
             db.commit()
         logger.info("vCenter %s 扫描完成，VM=%s 主机=%s 存储=%s，耗时 %ss", vc.host, count, host_count, ds_count, duration)
     except Exception as e:
+        scan_successful = False
         duration = round((datetime.now() - start_time).total_seconds(), 1)
         logger.exception("vCenter %s 扫描失败", vc.host if vc else vcenter_id)
+        if scan_log_id:
+            append_log(scan_log_id, f"扫描失败: {e}")
+            update_progress(scan_log_id, 0, f"扫描失败: {str(e)[:120]}")
         try:
             db_vc = db.query(VCenter).get(vcenter_id)
             if db_vc:
@@ -622,9 +708,13 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
         try:
             log = _db.query(ScanLog).get(scan_log_id)
             if log:
-                log.status = ScanStatus.success if count > 0 else ScanStatus.success
+                log.status = ScanStatus.success if scan_successful else ScanStatus.failed
                 log.hosts_found = count
                 log.completed_at = datetime.now()
+                log.progress_pct = 100 if scan_successful else 0
+                log.current_step = ""
+                if not scan_successful and log.error_message is None:
+                    log.error_message = "扫描执行异常，请查看终端输出"
                 if log.started_at:
                     log.duration_seconds = round((datetime.now() - log.started_at).total_seconds(), 1)
                 _db.commit()
@@ -659,6 +749,8 @@ async def trigger_vcenter_scan(vcenter: VCenter, triggered_by: str = "manual") -
         scan_log_id = scan_log.id
     finally:
         db.close()
+    from app.services.scan_step_service import mark_queued
+    mark_queued(scan_log_id)
     from app.tasks.scan_tasks import scan_vcenter_task
     scan_vcenter_task.delay(vcenter.id, scan_log_id)
     return scan_log_id

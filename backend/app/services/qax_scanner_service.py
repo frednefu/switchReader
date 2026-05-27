@@ -138,6 +138,8 @@ def _update_scan_log(scan_log_id: int, success: bool, server_count: int, error_m
                 log.hosts_found = server_count
                 log.error_message = error_msg
                 log.completed_at = datetime.now()
+                log.progress_pct = 100 if success else 0
+                log.current_step = ""
                 if log.started_at:
                     log.duration_seconds = round((datetime.now() - log.started_at).total_seconds(), 1)
                 _db.commit()
@@ -168,9 +170,14 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
     """
     from app.models.scan_log import ScanLog, ScanStatus
     from app.services.history_service import detect_qax_changes
+    from app.services.scan_step_service import add_step, finish_step, update_progress, mark_started, append_log
 
     start_time = datetime.now()
     logger.info("椒图扫描开始 device_id=%s scan_log_id=%s", device_id, scan_log_id)
+
+    if scan_log_id:
+        mark_started(scan_log_id)
+        append_log(scan_log_id, f"开始椒图扫描 device_id={device_id}")
 
     server_count = 0
     detail_success = 0
@@ -211,11 +218,30 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
             db.close()
 
         # 阶段 1：通过 API 获取服务器列表（不持有 DB 会话）
+        if scan_log_id:
+            update_progress(scan_log_id, 10, "获取服务器列表")
+            step1_id = add_step(scan_log_id, 1, "获取服务器列表")
         client = QianXinClient(device_host, device_uuid, device_secret)
         loop = asyncio.get_running_loop()
         logger.info("椒图扫描阶段1开始 device=%s 获取服务器列表...", device_name)
         servers = await loop.run_in_executor(None, client.get_all_servers)
         logger.info("椒图扫描阶段1完成 device=%s 服务器数量=%s", device_name, len(servers))
+        if scan_log_id:
+            # 服务器分布统计
+            os_counts = {}
+            online_count = 0
+            offline_count = 0
+            for s in servers:
+                os_name = s.get("operationSystem", "") or "未知"
+                os_counts[os_name] = os_counts.get(os_name, 0) + 1
+                if s.get("onlineStatus") in (1, "1"):
+                    online_count += 1
+                else:
+                    offline_count += 1
+            os_parts = [f"{os}:{cnt}" for os, cnt in sorted(os_counts.items(), key=lambda x: -x[1])[:6]]
+            append_log(scan_log_id, f"服务器列表: {len(servers)} 台 (在线 {online_count}/离线 {offline_count})")
+            append_log(scan_log_id, f"操作系统分布: {', '.join(os_parts)}")
+            finish_step(step1_id, "success", len(servers), len(servers))
 
         if not servers:
             _wipe_qax_data(device_id)
@@ -224,18 +250,33 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
             _finalize_scan_success(device_id, start_time, server_count, 0, 0)
             _write_qax_history(device_id, device_name, old_by_key, {})
             if scan_log_id:
+                update_progress(scan_log_id, 100)
                 _update_scan_log(scan_log_id, True, 0, None)
             logger.info("椒图扫描完成 device=%s 无服务器返回", device_name)
             return
 
         # 阶段 2：写入服务器基本信息（短事务）
         logger.info("椒图扫描阶段2开始 device=%s 写入 %s 台服务器...", device_name, len(servers))
+        if scan_log_id:
+            update_progress(scan_log_id, 30, "写入服务器基本信息")
+            step2_id = add_step(scan_log_id, 2, "写入服务器基本信息")
         server_map = _write_qax_servers(device_id, servers)
         server_count = len(servers)
+        if scan_log_id:
+            finish_step(step2_id, "success", server_count, server_count)
         logger.info("椒图扫描阶段2完成 device=%s 写入完成", device_name)
 
         # 阶段 3：逐台采集详情
         logger.info("椒图扫描阶段3开始 device=%s 逐台采集详情...", device_name)
+        if scan_log_id:
+            update_progress(scan_log_id, 40, "逐台采集端口/进程/软件详情")
+            step3_id = add_step(scan_log_id, 3, "采集服务器详情")
+            append_log(scan_log_id, f"开始采集 {server_count} 台服务器详情...")
+
+        total_ports = 0
+        total_procs = 0
+        total_sw = 0
+        last_progress_pct = 40
         for idx, s in enumerate(servers):
             machine_uuid = s.get("machineUuid", "")
             machine_name = s.get("machineName", "")
@@ -251,6 +292,9 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
                 procs = await loop.run_in_executor(None, client.get_server_processes, machine_uuid)
                 sw_list = await loop.run_in_executor(None, client.get_server_software, machine_uuid)
                 _write_qax_server_details(device_id, server_id, ports, procs, sw_list)
+                total_ports += len(ports)
+                total_procs += len(procs)
+                total_sw += len(sw_list)
                 detail_success += 1
             except Exception as e:
                 detail_failed += 1
@@ -260,12 +304,21 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
                 except Exception:
                     pass
 
-            if (idx + 1) % 10 == 0:
+            # 每处理 5 台或进度变化超过 5% 时更新
+            pct = 40 + int(40 * (idx + 1) / server_count)
+            if (idx + 1) % 5 == 0 or pct - last_progress_pct >= 5:
+                last_progress_pct = pct
+                if scan_log_id:
+                    update_progress(scan_log_id, pct, f"详情采集 {idx + 1}/{server_count}")
                 logger.info("椒图扫描进度 device=%s %s/%s 详情成功=%s 失败=%s",
                             device_name, idx + 1, server_count, detail_success, detail_failed)
 
-        logger.info("椒图扫描阶段3完成 device=%s 详情成功=%s 失败=%s",
-                    device_name, detail_success, detail_failed)
+        if scan_log_id:
+            finish_step(step3_id, "success", server_count, detail_success)
+            append_log(scan_log_id, f"详情采集完成: 成功 {detail_success}/失败 {detail_failed}")
+            append_log(scan_log_id, f"采集汇总: 端口 {total_ports} 个, 进程 {total_procs} 个, 软件 {total_sw} 个")
+        logger.info("椒图扫描阶段3完成 device=%s 详情成功=%s 失败=%s 端口=%s 进程=%s 软件=%s",
+                    device_name, detail_success, detail_failed, total_ports, total_procs, total_sw)
         scan_success = True
 
     except Exception as e:
@@ -279,6 +332,9 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
     else:
         # 阶段 4：变更历史 + 最终状态
         logger.info("椒图扫描阶段4开始 device=%s 写入变更历史...", device_name)
+        if scan_log_id:
+            update_progress(scan_log_id, 85, "写入变更历史")
+            step4_id = add_step(scan_log_id, 4, "变更检测")
         try:
             db = SessionLocal()
             try:
@@ -290,10 +346,14 @@ async def _run_qax_scan_async(device_id: int, scan_log_id: int | None = None):
                     new_by_key[(r.machine_uuid, device_id)] = r
                 history_count = detect_qax_changes(db, device_id, device_name, old_by_key, new_by_key)
                 db.commit()
+                if scan_log_id:
+                    finish_step(step4_id, "success", history_count, history_count)
                 logger.info("椒图变更历史写入完成 device=%s 变更记录=%s", device_name, history_count)
             finally:
                 db.close()
         except Exception:
+            if scan_log_id:
+                finish_step(step4_id, "failed", 0, 0, "变更历史写入失败")
             logger.exception("写入椒图变更历史失败 device_id=%s", device_id)
 
         try:
@@ -512,7 +572,8 @@ async def trigger_qax_scan(device: QianXinDevice, triggered_by: str = "manual") 
         scan_log_id = scan_log.id
     finally:
         db.close()
-
+    from app.services.scan_step_service import mark_queued
+    mark_queued(scan_log_id)
     from app.tasks.scan_tasks import scan_qax_task
     scan_qax_task.delay(device.id, scan_log_id)
     return scan_log_id

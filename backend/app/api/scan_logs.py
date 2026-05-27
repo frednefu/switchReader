@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from math import ceil
 
 from app.database import get_db
-from app.models.scan_log import ScanLog
-from app.schemas.scan import ScanLogOut, PaginatedResponse
+from app.models.scan_log import ScanLog, ScanStep
+from app.schemas.scan import ScanLogOut, ScanStepOut, PaginatedResponse
 from app.api.deps import get_current_user, require_admin
 
 router = APIRouter(prefix="/scan-logs", tags=["扫描日志"])
@@ -39,12 +39,15 @@ def list_scan_logs(
 @router.delete("")
 def clear_scan_logs(
     source_type: str = Query(None),
+    status: str = Query(None),
     db: Session = Depends(get_db),
     admin=Depends(require_admin),
 ):
     q = db.query(ScanLog)
     if source_type:
         q = q.filter(ScanLog.source_type == source_type)
+    if status:
+        q = q.filter(ScanLog.status == status)
     count = q.count()
     if count == 0:
         return {"message": "没有可清除的扫描记录", "deleted": 0}
@@ -57,6 +60,36 @@ def clear_scan_logs(
 def get_scan_log(log_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     log = db.query(ScanLog).get(log_id)
     if not log:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="扫描日志不存在")
     return ScanLogOut.model_validate(log)
+
+
+@router.get("/{log_id}/steps", response_model=list[ScanStepOut])
+def get_scan_steps(log_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """获取某次扫描的所有步骤记录（按 step_order 排序）。"""
+    log = db.query(ScanLog).get(log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="扫描日志不存在")
+    steps = db.query(ScanStep).filter(
+        ScanStep.scan_log_id == log_id
+    ).order_by(ScanStep.step_order).all()
+    return [ScanStepOut.model_validate(s) for s in steps]
+
+
+@router.delete("/{log_id}")
+def delete_scan_log(log_id: int, db: Session = Depends(get_db), admin=Depends(require_admin)):
+    log = db.query(ScanLog).get(log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="扫描日志不存在")
+    db.delete(log)
+    db.commit()
+    return {"message": "已删除扫描记录", "deleted_id": log_id}
+
+
+@router.get("/{log_id}/output")
+def get_scan_output(log_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    """获取扫描的终端日志输出。"""
+    log = db.query(ScanLog).get(log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="扫描日志不存在")
+    return {"log_output": log.log_output or ""}

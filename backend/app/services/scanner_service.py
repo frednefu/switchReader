@@ -144,25 +144,65 @@ def _store_route_results(db, switch_id: int, scan_log_id: int, route_data: list)
 
 
 async def _run_scan_async(switch: Switch, scan_log_id: int):
+    from app.services.scan_step_service import add_step, finish_step, update_progress, mark_started, append_log
+
     host_data = []
     route_data = []
     error_msg = None
 
+    mark_started(scan_log_id)
+    append_log(scan_log_id, f"开始扫描交换机 {switch.name} ({switch.ip_address})")
+    append_log(scan_log_id, f"SNMP community: {switch.community}, MIB: {switch.mib_type.value}")
+
     try:
+        update_progress(scan_log_id, 5, "交换机类型检测")
+        step1_id = add_step(scan_log_id, 1, "交换机类型检测")
+
         slim = swr.Slim()
         try:
             switch_type = await swr._detect_switch_type(slim, switch.ip_address, switch.community)
+            append_log(scan_log_id, f"交换机类型: {switch_type}")
+            finish_step(step1_id, "success", 1, 1)
+            update_progress(scan_log_id, 10, "开始采集数据")
+
             if switch_type == 'L3':
+                append_log(scan_log_id, "三层交换机 → ARP + FDB 表采集")
+                update_progress(scan_log_id, 12, "ARP + FDB 表采集中")
+                step2_id = add_step(scan_log_id, 2, "ARP + FDB 表采集")
                 host_data = await swr._scan_l3_switch(slim, switch.ip_address, switch.community, switch.mib_type.value)
+                mac_count = len(set(h.get("MAC地址", "") for h in host_data if h.get("MAC地址")))
+                ip_count = len(set(h.get("IP地址", "") for h in host_data if h.get("IP地址")))
+                append_log(scan_log_id, f"ARP + FDB 采集完成: {len(host_data)} 条记录 (MAC {mac_count}, IP {ip_count})")
+                finish_step(step2_id, "success", len(host_data), len(host_data))
+                update_progress(scan_log_id, 30, "ARP + FDB 采集完成")
+
+                update_progress(scan_log_id, 35, "路由表采集中")
+                step3_id = add_step(scan_log_id, 3, "路由表采集")
                 route_data = await swr._get_route_table(slim, switch.ip_address, switch.community)
+                direct_routes = len([r for r in route_data if r.get("路由类型") == "直连"])
+                static_routes = len([r for r in route_data if r.get("路由类型") == "非直连"])
+                append_log(scan_log_id, f"路由表采集完成: {len(route_data)} 条 (直连 {direct_routes}, 非直连 {static_routes})")
+                finish_step(step3_id, "success", len(route_data), len(route_data))
+                update_progress(scan_log_id, 50, "路由表采集完成")
             else:
+                append_log(scan_log_id, "二层交换机 → 仅 FDB 表采集")
+                update_progress(scan_log_id, 12, "FDB 表采集中")
+                step2_id = add_step(scan_log_id, 2, "FDB 表采集")
                 host_data = await swr._scan_l2_switch(slim, switch.ip_address, switch.community, switch.mib_type.value)
+                mac_count = len(set(h.get("MAC地址", "") for h in host_data if h.get("MAC地址")))
+                append_log(scan_log_id, f"FDB 采集完成: {len(host_data)} 条记录 (MAC {mac_count})")
                 route_data = []
+                finish_step(step2_id, "success", len(host_data), len(host_data))
+                update_progress(scan_log_id, 50, "FDB 采集完成")
         finally:
             slim.close()
     except Exception as e:
         import traceback
         error_msg = f"{e}\n{traceback.format_exc()[-500:]}"
+        append_log(scan_log_id, f"数据采集异常: {e}")
+
+    update_progress(scan_log_id, 60, "写入数据到数据库")
+    step4_id = add_step(scan_log_id, 4, "结果保存与变更检测")
 
     db = SessionLocal()
     try:
@@ -176,11 +216,23 @@ async def _run_scan_async(switch: Switch, scan_log_id: int):
             if error_msg:
                 sw.last_scan_duration = None
             else:
-                sw.last_scan_duration = None  # duration 在 scan_log 中计算
+                sw.last_scan_duration = None
 
         if error_msg is None:
+            update_progress(scan_log_id, 70, "保存主机数据")
+            append_log(scan_log_id, f"写入 {len(host_data)} 条主机记录...")
             _store_host_results(db, switch.id, scan_log_id, host_data, switch.name)
-            _store_route_results(db, switch.id, scan_log_id, route_data)
+            append_log(scan_log_id, "主机数据写入完成")
+
+            if route_data:
+                update_progress(scan_log_id, 85, "保存路由数据")
+                append_log(scan_log_id, f"写入 {len(route_data)} 条路由记录...")
+                _store_route_results(db, switch.id, scan_log_id, route_data)
+                append_log(scan_log_id, "路由数据写入完成")
+
+            update_progress(scan_log_id, 95, "变更检测")
+            append_log(scan_log_id, "变更检测完成")
+            finish_step(step4_id, "success", len(host_data) + len(route_data), len(host_data) + len(route_data))
 
         scan_log = db.query(ScanLog).get(scan_log_id)
         if scan_log:
@@ -189,11 +241,15 @@ async def _run_scan_async(switch: Switch, scan_log_id: int):
             scan_log.routes_found = len(route_data)
             scan_log.error_message = error_msg
             scan_log.completed_at = datetime.now()
+            scan_log.progress_pct = 100
+            scan_log.current_step = ""
             if scan_log.started_at:
                 scan_log.duration_seconds = round((scan_log.completed_at - scan_log.started_at).total_seconds(), 1)
-            # 同步 duration 到 switch
             if sw and scan_log.duration_seconds:
                 sw.last_scan_duration = scan_log.duration_seconds
+
+        if error_msg:
+            finish_step(step4_id, "failed", 0, 0, error_msg)
         db.commit()
     finally:
         db.close()
@@ -228,6 +284,8 @@ async def trigger_scan(switch: Switch, triggered_by: TriggerType) -> int:
     finally:
         db.close()
 
+    from app.services.scan_step_service import mark_queued
+    mark_queued(scan_log_id)
     from app.tasks.scan_tasks import scan_switch_task
     scan_switch_task.delay(switch.id, scan_log_id)
     return scan_log_id

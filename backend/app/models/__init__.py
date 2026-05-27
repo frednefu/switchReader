@@ -2,7 +2,7 @@ from app.models.user import User
 from app.models.switch import Switch
 from app.models.scan_result import ScanResult
 from app.models.route_table import RouteTable
-from app.models.scan_log import ScanLog
+from app.models.scan_log import ScanLog, ScanStep
 from app.models.subnet import Subnet
 from app.models.history import History
 from app.models.vcenter import VCenter
@@ -13,4 +13,4 @@ from app.models.f5 import F5Device, F5VirtualServer, F5PoolMember, F5Rule, F5App
 from app.models.zdns import ZDNSDevice, ZDNSRecord, ZDNSDomainMap
 from app.models.qax import QianXinDevice, QianXinServer, QianXinPort, QianXinProcess, QianXinSoftware
 
-__all__ = ["User", "Switch", "ScanResult", "RouteTable", "ScanLog", "Subnet", "History", "VCenter", "VMInventory", "EsxiHost", "Datastore", "F5Device", "F5VirtualServer", "F5PoolMember", "F5Rule", "F5ApplicationMap", "ZDNSDevice", "ZDNSRecord", "ZDNSDomainMap", "QianXinDevice", "QianXinServer", "QianXinPort", "QianXinProcess", "QianXinSoftware"]
+__all__ = ["User", "Switch", "ScanResult", "RouteTable", "ScanLog", "ScanStep", "Subnet", "History", "VCenter", "VMInventory", "EsxiHost", "Datastore", "F5Device", "F5VirtualServer", "F5PoolMember", "F5Rule", "F5ApplicationMap", "ZDNSDevice", "ZDNSRecord", "ZDNSDomainMap", "QianXinDevice", "QianXinServer", "QianXinPort", "QianXinProcess", "QianXinSoftware"]

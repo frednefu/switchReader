@@ -235,9 +235,11 @@ def _build_domain_map(records: list) -> list:
 async def _run_zdns_scan_async(zdns_device_id: int, scan_log_id: int | None = None):
     """异步扫描 ZDNS 设备，采集 DNS 记录并写入数据库。"""
     from app.services.history_service import detect_zdns_changes
+    from app.services.scan_step_service import add_step, finish_step, update_progress, mark_started, append_log
     from app.models.scan_log import ScanLog, ScanStatus
 
     start_time = datetime.now()
+    scan_successful = True
 
     db = SessionLocal()
     device = None
@@ -248,9 +250,17 @@ async def _run_zdns_scan_async(zdns_device_id: int, scan_log_id: int | None = No
         if not device or not device.is_active:
             return
 
+        if scan_log_id:
+            mark_started(scan_log_id)
+            append_log(scan_log_id, f"开始扫描 ZDNS {device.host}")
+
         device.last_scan_status = "running"
         device.last_scan_error = None
         db.commit()
+
+        if scan_log_id:
+            update_progress(scan_log_id, 5, "获取视图与区域列表")
+            step1_id = add_step(scan_log_id, 1, "视图与区域列表获取")
 
         loop = asyncio.get_running_loop()
         scan_result = await loop.run_in_executor(
@@ -259,6 +269,24 @@ async def _run_zdns_scan_async(zdns_device_id: int, scan_log_id: int | None = No
 
         record_count = len(scan_result["records"])
         zone_count = sum(len(zones) for zones in scan_result["zones"].values())
+
+        if scan_log_id:
+            # 每个视图的区域分布
+            append_log(scan_log_id, f"扫描完成: {len(scan_result['views'])} 个视图, {zone_count} 个区, {record_count} 条记录")
+            for view, zones in scan_result["zones"].items():
+                append_log(scan_log_id, f"  视图 {view}: {len(zones)} 个区")
+
+            # 记录类型分布
+            type_counts = {}
+            for r in scan_result["records"]:
+                t = r.get("record_type", "?")
+                type_counts[t] = type_counts.get(t, 0) + 1
+            type_parts = [f"{t}:{c}" for t, c in sorted(type_counts.items())]
+            append_log(scan_log_id, f"记录类型分布: {', '.join(type_parts)}")
+
+            update_progress(scan_log_id, 20, "数据分析完成")
+            finish_step(step1_id, "success", record_count, record_count)
+            update_progress(scan_log_id, 35, "开始写入 DNS 记录")
 
         write_db = SessionLocal()
         try:
@@ -269,19 +297,36 @@ async def _run_zdns_scan_async(zdns_device_id: int, scan_log_id: int | None = No
             old_by_key = {(r.domain_name, r.record_type): r for r in old_map_rows}
 
             # DELETE + INSERT: ZDNSRecord
+            if scan_log_id:
+                step2_id = add_step(scan_log_id, 2, "DNS 记录写入")
             write_db.query(ZDNSRecord).filter(
                 ZDNSRecord.zdns_device_id == zdns_device_id
             ).delete()
             for rec in scan_result["records"]:
                 write_db.add(ZDNSRecord(zdns_device_id=zdns_device_id, **rec))
+            if scan_log_id:
+                finish_step(step2_id, "success", record_count, record_count)
+                update_progress(scan_log_id, 55, "DNS 记录写入完成")
 
             # 构建并写入 DomainMap
+            if scan_log_id:
+                step3_id = add_step(scan_log_id, 3, "域名映射构建")
             map_rows = _build_domain_map(scan_result["records"])
             write_db.query(ZDNSDomainMap).filter(
                 ZDNSDomainMap.zdns_device_id == zdns_device_id
             ).delete(synchronize_session='fetch')
             for mr in map_rows:
                 write_db.add(ZDNSDomainMap(zdns_device_id=zdns_device_id, **mr))
+            if scan_log_id:
+                # 域名映射分布统计
+                ipv4_count = sum(1 for mr in map_rows if mr.get("ip_category") == "IPv4")
+                ipv6_count = len(map_rows) - ipv4_count
+                internal_count = sum(1 for mr in map_rows if mr.get("network_type") == "内网")
+                external_count = sum(1 for mr in map_rows if mr.get("network_type") == "外网")
+                domains = set(mr.get("domain_name", "") for mr in map_rows)
+                append_log(scan_log_id, f"域名映射: {len(map_rows)} 条 (IPv4:{ipv4_count}/IPv6:{ipv6_count}, 内网:{internal_count}/外网:{external_count}), {len(domains)} 个域名")
+                finish_step(step3_id, "success", len(map_rows), len(map_rows))
+                update_progress(scan_log_id, 75, "域名映射构建完成")
 
             write_db.flush()  # 确保 INSERT 已刷入，避免 query 返回旧缓存数据
 
@@ -292,7 +337,12 @@ async def _run_zdns_scan_async(zdns_device_id: int, scan_log_id: int | None = No
             new_by_key = {(r.domain_name, r.record_type): r for r in new_map_rows}
 
             # 写入历史
+            if scan_log_id:
+                step4_id = add_step(scan_log_id, 4, "变更检测")
             detect_zdns_changes(write_db, zdns_device_id, device.name, old_by_key, new_by_key)
+            if scan_log_id:
+                finish_step(step4_id, "success")
+                update_progress(scan_log_id, 90, "变更检测完成")
 
             write_db.commit()
         except Exception:
@@ -314,8 +364,12 @@ async def _run_zdns_scan_async(zdns_device_id: int, scan_log_id: int | None = No
         logger.info("ZDNS %s 扫描完成，%s 条记录，%s 个区，耗时 %ss",
                     device.host, record_count, zone_count, duration)
     except Exception as e:
+        scan_successful = False
         duration = round((datetime.now() - start_time).total_seconds(), 1)
         logger.exception("ZDNS %s 扫描失败", device.host if device else zdns_device_id)
+        if scan_log_id:
+            append_log(scan_log_id, f"扫描失败: {e}")
+            update_progress(scan_log_id, 0, f"扫描失败: {str(e)[:120]}")
         try:
             db_device = db.query(ZDNSDevice).get(zdns_device_id)
             if db_device:
@@ -334,10 +388,14 @@ async def _run_zdns_scan_async(zdns_device_id: int, scan_log_id: int | None = No
         try:
             log = _db.query(ScanLog).get(scan_log_id)
             if log:
-                log.status = ScanStatus.success
+                log.status = ScanStatus.success if scan_successful else ScanStatus.failed
                 log.hosts_found = record_count
                 log.routes_found = zone_count
                 log.completed_at = datetime.now()
+                log.progress_pct = 100 if scan_successful else 0
+                log.current_step = ""
+                if not scan_successful and log.error_message is None:
+                    log.error_message = "扫描执行异常，请查看终端输出"
                 if log.started_at:
                     log.duration_seconds = round((datetime.now() - log.started_at).total_seconds(), 1)
                 _db.commit()
@@ -373,6 +431,8 @@ async def trigger_zdns_scan(device: ZDNSDevice, triggered_by: str = "manual") ->
         scan_log_id = scan_log.id
     finally:
         db.close()
+    from app.services.scan_step_service import mark_queued
+    mark_queued(scan_log_id)
     from app.tasks.scan_tasks import scan_zdns_task
     scan_zdns_task.delay(device.id, scan_log_id)
     return scan_log_id

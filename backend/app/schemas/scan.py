@@ -39,6 +39,22 @@ class RouteTableOut(BaseModel):
         from_attributes = True
 
 
+class ScanStepOut(BaseModel):
+    id: int
+    scan_log_id: int
+    step_order: int
+    step_name: str
+    status: str
+    items_total: int
+    items_processed: int
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ScanLogOut(BaseModel):
     id: int
     switch_id: Optional[int] = None
@@ -53,6 +69,8 @@ class ScanLogOut(BaseModel):
     started_at: datetime
     completed_at: Optional[datetime] = None
     duration_seconds: Optional[float] = None
+    progress_pct: int = 0
+    current_step: str = ""
 
     class Config:
         from_attributes = True

@@ -423,9 +423,11 @@ def _build_application_map(scan_result: dict) -> list:
 async def _run_f5_scan_async(f5_device_id: int, scan_log_id: int | None = None):
     """异步扫描 F5 设备，采集配置并写入数据库。"""
     from app.services.history_service import detect_f5_changes
+    from app.services.scan_step_service import add_step, finish_step, update_progress, mark_started, append_log
     from app.models.scan_log import ScanLog, ScanStatus
 
     start_time = datetime.now()
+    scan_successful = True
 
     db = SessionLocal()
     device = None
@@ -436,14 +438,63 @@ async def _run_f5_scan_async(f5_device_id: int, scan_log_id: int | None = None):
         if not device or not device.is_active:
             return
 
+        if scan_log_id:
+            mark_started(scan_log_id)
+            append_log(scan_log_id, f"开始扫描 F5 {device.host}")
+
         device.last_scan_status = "running"
         device.last_scan_error = None
         db.commit()
+
+        if scan_log_id:
+            update_progress(scan_log_id, 5, "连接 F5 并采集数据")
+            step1_id = add_step(scan_log_id, 1, "连接 F5 并采集数据")
 
         loop = asyncio.get_running_loop()
         scan_result = await loop.run_in_executor(
             None, _do_f5_scan, device.host, device.username, device.password, device.port
         )
+
+        if scan_log_id:
+            # VS 分布统计
+            vs_list = scan_result["virtual_servers"]
+            vs_with_pool = sum(1 for vs in vs_list if vs.get("pool_name"))
+            vs_with_rules = sum(1 for vs in vs_list if vs.get("rules") and vs["rules"] != "[]")
+            vs_ips = set(vs.get("vs_ip", "") for vs in vs_list if vs.get("vs_ip"))
+            append_log(scan_log_id, f"数据采集完成: VS={len(vs_list)} (关联Pool {vs_with_pool}/关联iRule {vs_with_rules}), 成员={len(scan_result['pool_members'])}, iRules={len(scan_result['rules'])}")
+            append_log(scan_log_id, f"VS IP 分布: {len(vs_ips)} 个独立 IP")
+
+            # Pool member 状态分布
+            member_states = {}
+            for pm in scan_result["pool_members"]:
+                state = pm.get("member_state", "unknown") or "unknown"
+                member_states[state] = member_states.get(state, 0) + 1
+            if member_states:
+                state_parts = [f"{s}:{c}" for s, c in sorted(member_states.items())]
+                append_log(scan_log_id, f"Pool 成员状态: {', '.join(state_parts)}")
+
+            # iRule 域名提取预览
+            rule_contents = scan_result.get("rule_contents", {})
+            if rule_contents:
+                domain_pool_map = _extract_domain_pool_pairs(rule_contents)
+                domain_count = sum(len(v) for v in domain_pool_map.values())
+                if domain_count > 0:
+                    append_log(scan_log_id, f"iRule 域名→Pool 映射: {domain_count} 条 (来自 {len(domain_pool_map)} 个 iRule)")
+                    # 展示前 5 条
+                    shown = 0
+                    for rn, pairs in sorted(domain_pool_map.items()):
+                        for domain, pool in pairs[:3]:
+                            if shown >= 5:
+                                break
+                            append_log(scan_log_id, f"  {domain} → {pool} ({rn})")
+                            shown += 1
+                        if shown >= 5:
+                            break
+
+            total_collected = len(vs_list) + len(scan_result["pool_members"]) + len(scan_result["rules"])
+            update_progress(scan_log_id, 25, "数据分析完成")
+            finish_step(step1_id, "success", total_collected, total_collected)
+            update_progress(scan_log_id, 35, "开始写入数据库")
 
         write_db = SessionLocal()
         try:
@@ -457,33 +508,59 @@ async def _run_f5_scan_async(f5_device_id: int, scan_log_id: int | None = None):
                 old_by_key[key] = r
 
             # DELETE + INSERT: F5VirtualServer
+            if scan_log_id:
+                step2_id = add_step(scan_log_id, 2, "Virtual Server 写入")
             write_db.query(F5VirtualServer).filter(
                 F5VirtualServer.f5_device_id == f5_device_id
             ).delete()
             for vs in scan_result["virtual_servers"]:
                 write_db.add(F5VirtualServer(f5_device_id=f5_device_id, **vs))
+            vs_count = len(scan_result["virtual_servers"])
+            if scan_log_id:
+                finish_step(step2_id, "success", vs_count, vs_count)
+                append_log(scan_log_id, f"Virtual Server 写入完成: {vs_count} 条")
+                update_progress(scan_log_id, 50, "Virtual Server 写入完成")
 
             # DELETE + INSERT: F5PoolMember
+            if scan_log_id:
+                step3_id = add_step(scan_log_id, 3, "Pool 成员写入")
             write_db.query(F5PoolMember).filter(
                 F5PoolMember.f5_device_id == f5_device_id
             ).delete()
             for pm in scan_result["pool_members"]:
                 write_db.add(F5PoolMember(f5_device_id=f5_device_id, **pm))
+            pool_count = len(scan_result["pool_members"])
+            if scan_log_id:
+                finish_step(step3_id, "success", pool_count, pool_count)
+                update_progress(scan_log_id, 60, "Pool 成员写入完成")
 
             # DELETE + INSERT: F5Rule
+            if scan_log_id:
+                step4_id = add_step(scan_log_id, 4, "iRule 写入")
             write_db.query(F5Rule).filter(
                 F5Rule.f5_device_id == f5_device_id
             ).delete()
             for rule in scan_result["rules"]:
                 write_db.add(F5Rule(f5_device_id=f5_device_id, **rule))
+            if scan_log_id:
+                finish_step(step4_id, "success", len(scan_result["rules"]), len(scan_result["rules"]))
+                update_progress(scan_log_id, 70, "iRule 写入完成")
 
             # 构建并写入应用映射
+            if scan_log_id:
+                step5_id = add_step(scan_log_id, 5, "应用映射构建")
             app_rows = _build_application_map(scan_result)
             write_db.query(F5ApplicationMap).filter(
                 F5ApplicationMap.f5_device_id == f5_device_id
             ).delete()
             for ar in app_rows:
                 write_db.add(F5ApplicationMap(f5_device_id=f5_device_id, **ar))
+            if scan_log_id:
+                finish_step(step5_id, "success", len(app_rows), len(app_rows))
+                append_log(scan_log_id, f"应用映射: {len(app_rows)} 条 (iRule来源 + Pool来源)")
+                update_progress(scan_log_id, 85, "应用映射构建完成")
+
+            write_db.flush()  # 确保 INSERT 已刷入，避免 query 返回旧缓存数据
 
             # 构建新应用映射的 key 字典用于 diff
             new_app_rows = write_db.query(F5ApplicationMap).filter(
@@ -495,11 +572,14 @@ async def _run_f5_scan_async(f5_device_id: int, scan_log_id: int | None = None):
                 new_by_key[key] = r
 
             # 写入历史
+            if scan_log_id:
+                step6_id = add_step(scan_log_id, 6, "变更检测")
             detect_f5_changes(write_db, f5_device_id, device.name, old_by_key, new_by_key)
+            if scan_log_id:
+                finish_step(step6_id, "success")
+                update_progress(scan_log_id, 95, "变更检测完成")
 
             write_db.commit()
-            vs_count = len(scan_result["virtual_servers"])
-            pool_count = len(scan_result["pool_members"])
         except Exception:
             write_db.rollback()
             raise
@@ -518,8 +598,12 @@ async def _run_f5_scan_async(f5_device_id: int, scan_log_id: int | None = None):
             db.commit()
         logger.info("F5 %s 扫描完成，VS: %s, Pool Members: %s，耗时 %ss", device.host, vs_count, pool_count, duration)
     except Exception as e:
+        scan_successful = False
         duration = round((datetime.now() - start_time).total_seconds(), 1)
         logger.exception("F5 %s 扫描失败", device.host if device else f5_device_id)
+        if scan_log_id:
+            append_log(scan_log_id, f"扫描失败: {e}")
+            update_progress(scan_log_id, 0, f"扫描失败: {str(e)[:120]}")
         try:
             db_device = db.query(F5Device).get(f5_device_id)
             if db_device:
@@ -538,9 +622,13 @@ async def _run_f5_scan_async(f5_device_id: int, scan_log_id: int | None = None):
         try:
             log = _db.query(ScanLog).get(scan_log_id)
             if log:
-                log.status = ScanStatus.success
+                log.status = ScanStatus.success if scan_successful else ScanStatus.failed
                 log.hosts_found = vs_count + pool_count
                 log.completed_at = datetime.now()
+                log.progress_pct = 100 if scan_successful else 0
+                log.current_step = ""
+                if not scan_successful and log.error_message is None:
+                    log.error_message = "扫描执行异常，请查看终端输出"
                 if log.started_at:
                     log.duration_seconds = round((datetime.now() - log.started_at).total_seconds(), 1)
                 _db.commit()
@@ -576,6 +664,8 @@ async def trigger_f5_scan(device: F5Device, triggered_by: str = "manual") -> int
         scan_log_id = scan_log.id
     finally:
         db.close()
+    from app.services.scan_step_service import mark_queued
+    mark_queued(scan_log_id)
     from app.tasks.scan_tasks import scan_f5_task
     scan_f5_task.delay(device.id, scan_log_id)
     return scan_log_id

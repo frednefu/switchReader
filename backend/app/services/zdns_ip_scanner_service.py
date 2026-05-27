@@ -32,9 +32,11 @@ def _ping_ip(ip_address: str, timeout: int = 3) -> bool:
 async def _run_zdns_ip_scan_async(zdns_device_id: int, scan_log_id: int | None = None):
     """异步执行 IP 可达性扫描，在线程池中运行 ping。"""
     from datetime import datetime as dt
+    from app.services.scan_step_service import add_step, finish_step, update_progress, mark_started, append_log
 
     loop = asyncio.get_running_loop()
     start_time = dt.now()
+    scan_successful = True
     device = None
     total_checked = 0
     online_count = 0
@@ -45,6 +47,10 @@ async def _run_zdns_ip_scan_async(zdns_device_id: int, scan_log_id: int | None =
         device = db.query(ZDNSDevice).get(zdns_device_id)
         if not device or not device.is_active:
             return
+
+        if scan_log_id:
+            mark_started(scan_log_id)
+            append_log(scan_log_id, f"开始 ZDNS IP 可达性扫描 {device.host}")
 
         device.last_ip_scan_status = "running"
         device.last_ip_scan_error = None
@@ -61,9 +67,15 @@ async def _run_zdns_ip_scan_async(zdns_device_id: int, scan_log_id: int | None =
             device.last_ip_scan_time = dt.now()
             device.last_ip_scan_duration = 0.0
             db.commit()
+            if scan_log_id:
+                update_progress(scan_log_id, 100)
+                _finish_scan_log(scan_log_id, 0, 0)
             return
 
         unique_ips = list(set(r.ip_address for r in rows))
+
+        if scan_log_id:
+            update_progress(scan_log_id, 5, f"查询已知在线 IP (共 {len(unique_ips)} 个)")
 
         # 批量查交换机 scan_results：已存在于交换机中的 IP 直接视为在线
         switch_ips = set()
@@ -91,6 +103,12 @@ async def _run_zdns_ip_scan_async(zdns_device_id: int, scan_log_id: int | None =
         known_online = switch_ips | f5_up_ips
         ips_to_ping = [ip for ip in unique_ips if ip not in known_online]
 
+        if scan_log_id:
+            append_log(scan_log_id, f"唯一 IP: {len(unique_ips)} 个")
+            append_log(scan_log_id, f"来源于交换机: {len(switch_ips)} 个, 来源于 F5 up: {len(f5_up_ips - switch_ips)} 个")
+            append_log(scan_log_id, f"已知在线: {len(known_online)} 个, 待 Ping 探测: {len(ips_to_ping)} 个")
+            update_progress(scan_log_id, 20, f"待 Ping {len(ips_to_ping)} 个 IP")
+
         # 为已知在线的 IP 更新状态
         for r in rows:
             if r.ip_address in known_online:
@@ -105,10 +123,25 @@ async def _run_zdns_ip_scan_async(zdns_device_id: int, scan_log_id: int | None =
                 return ip, reachable
 
         if ips_to_ping:
-            tasks = [_ping_with_limit(ip) for ip in ips_to_ping]
-            results = await asyncio.gather(*tasks)
+            if scan_log_id:
+                step1_id = add_step(scan_log_id, 1, f"Ping 探测 ({len(ips_to_ping)} 个 IP)")
+                append_log(scan_log_id, f"开始 Ping 探测 {len(ips_to_ping)} 个 IP (并发20)...")
 
-            ping_results = dict(results)
+            # 分批 ping，每 25% 更新进度
+            batch_size = max(1, len(ips_to_ping) // 4)
+            ping_results = {}
+            for batch_idx in range(0, len(ips_to_ping), batch_size):
+                batch = ips_to_ping[batch_idx:batch_idx + batch_size]
+                tasks = [_ping_with_limit(ip) for ip in batch]
+                batch_results = await asyncio.gather(*tasks)
+                ping_results.update(dict(batch_results))
+
+                progress_pct = 20 + int(60 * min(batch_idx + batch_size, len(ips_to_ping)) / len(ips_to_ping))
+                batch_online = sum(1 for v in dict(batch_results).values() if v)
+                if scan_log_id:
+                    update_progress(scan_log_id, progress_pct,
+                                    f"Ping {min(batch_idx + batch_size, len(ips_to_ping))}/{len(ips_to_ping)} (在线 {batch_online})")
+
             for r in rows:
                 if r.ip_address in ping_results:
                     total_checked += 1
@@ -118,6 +151,11 @@ async def _run_zdns_ip_scan_async(zdns_device_id: int, scan_log_id: int | None =
                     else:
                         r.ip_status = "offline"
                         offline_count += 1
+
+            if scan_log_id:
+                finish_step(step1_id, "success", len(ips_to_ping), len(ips_to_ping))
+                append_log(scan_log_id, f"Ping 完成: 在线 {online_count}, 离线 {offline_count} (总已知在线 {len(known_online) + online_count})")
+                update_progress(scan_log_id, 90, "Ping 探测完成")
 
         db.commit()
 
@@ -131,8 +169,12 @@ async def _run_zdns_ip_scan_async(zdns_device_id: int, scan_log_id: int | None =
             zdns_device_id, len(known_online), total_checked, online_count, offline_count, duration,
         )
     except Exception as e:
+        scan_successful = False
         duration = round((dt.now() - start_time).total_seconds(), 1)
         logger.exception("ZDNS IP扫描失败 device_id=%s", zdns_device_id)
+        if scan_log_id:
+            append_log(scan_log_id, f"扫描失败: {e}")
+            update_progress(scan_log_id, 0, f"扫描失败: {str(e)[:120]}")
         try:
             if device:
                 device.last_ip_scan_status = "failed"
@@ -146,21 +188,31 @@ async def _run_zdns_ip_scan_async(zdns_device_id: int, scan_log_id: int | None =
 
     # 更新扫描日志
     if scan_log_id:
-        _db = SessionLocal()
-        try:
-            log = _db.query(ScanLog).get(scan_log_id)
-            if log:
-                log.status = ScanStatus.success
-                log.hosts_found = online_count
-                log.routes_found = offline_count
-                log.completed_at = dt.now()
-                if log.started_at:
-                    log.duration_seconds = round((dt.now() - log.started_at).total_seconds(), 1)
-                _db.commit()
-        except Exception:
-            pass
-        finally:
-            _db.close()
+        _finish_scan_log(scan_log_id, online_count, offline_count, scan_successful)
+
+
+def _finish_scan_log(scan_log_id: int, online_count: int, offline_count: int, success: bool = True):
+    """更新 ZDNS IP 扫描日志为完成状态。"""
+    from datetime import datetime as dt
+    _db = SessionLocal()
+    try:
+        log = _db.query(ScanLog).get(scan_log_id)
+        if log:
+            log.status = ScanStatus.success if success else ScanStatus.failed
+            log.hosts_found = online_count
+            log.routes_found = offline_count
+            log.completed_at = dt.now()
+            log.progress_pct = 100 if success else 0
+            log.current_step = ""
+            if not success and log.error_message is None:
+                log.error_message = "扫描执行异常，请查看终端输出"
+            if log.started_at:
+                log.duration_seconds = round((dt.now() - log.started_at).total_seconds(), 1)
+            _db.commit()
+    except Exception:
+        pass
+    finally:
+        _db.close()
 
 
 async def trigger_zdns_ip_scan(device: ZDNSDevice, triggered_by: str = "manual") -> int:
@@ -187,6 +239,8 @@ async def trigger_zdns_ip_scan(device: ZDNSDevice, triggered_by: str = "manual")
         scan_log_id = scan_log.id
     finally:
         db.close()
+    from app.services.scan_step_service import mark_queued
+    mark_queued(scan_log_id)
     from app.tasks.scan_tasks import scan_zdns_ip_task
     scan_zdns_ip_task.delay(device.id, scan_log_id)
     return scan_log_id

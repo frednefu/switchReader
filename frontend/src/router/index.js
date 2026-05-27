@@ -104,6 +104,12 @@ const routes = [
         meta: { title: '搜索' },
       },
       {
+        path: 'scan-monitor',
+        name: 'ScanMonitor',
+        component: () => import('@/views/ScanMonitor.vue'),
+        meta: { title: '扫描监控' },
+      },
+      {
         path: 'scan-logs',
         name: 'ScanLogs',
         component: () => import('@/views/ScanLogs.vue'),
