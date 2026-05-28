@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, Enum, DateTime, func
+from sqlalchemy import Column, Integer, String, Boolean, Enum, DateTime, ForeignKey, func
+from sqlalchemy.orm import relationship
 from app.database import Base
 import enum
 
@@ -18,5 +19,12 @@ class User(Base):
     role = Column(Enum(UserRole), nullable=False, default=UserRole.user)
     avatar_url = Column(String(512), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    gh = Column(String(32), nullable=True, index=True, comment="工号")
+    name = Column(String(128), nullable=True, comment="姓名")
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, comment="所属部门")
+    phone = Column(String(32), nullable=True, comment="办公电话")
+    mobile = Column(String(32), nullable=True, comment="移动电话")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    department = relationship("Department", lazy="joined")

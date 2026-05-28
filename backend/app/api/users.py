@@ -1,10 +1,13 @@
 """用户管理 API — 仅管理员可操作。"""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from math import ceil
 
 from app.database import get_db
 from app.models.user import User
+from app.models.department import Department
+from app.models.staff_info import StaffInfo
 from app.schemas.user import UserCreate, UserUpdate, UserOut, PasswordChange
 from app.utils.security import hash_password
 from app.api.deps import require_admin
@@ -13,7 +16,23 @@ router = APIRouter(prefix="/users", tags=["用户管理"])
 
 
 def _user_out(user: User) -> UserOut:
-    return UserOut.model_validate(user)
+    data = {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "role": user.role.value if hasattr(user.role, "value") else user.role,
+        "avatar_url": user.avatar_url,
+        "is_active": user.is_active,
+        "gh": user.gh,
+        "name": user.name,
+        "department_id": user.department_id,
+        "department_name": user.department.dwmc if user.department else None,
+        "phone": user.phone,
+        "mobile": user.mobile,
+        "created_at": user.created_at,
+        "updated_at": user.updated_at,
+    }
+    return UserOut(**data)
 
 
 @router.get("")
@@ -21,14 +40,19 @@ def list_users(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     search: str = Query("", max_length=128),
+    department_id: int = Query(None, description="按部门筛选"),
     db: Session = Depends(get_db),
     admin=Depends(require_admin),
 ):
-    q = db.query(User).filter(User.id != admin.id)  # 不显示自己
+    q = db.query(User)
     if search:
         q = q.filter(
-            (User.username.contains(search)) | (User.email.contains(search))
+            (User.username.contains(search))
+            | (User.email.contains(search))
+            | (User.gh.contains(search))
         )
+    if department_id is not None:
+        q = q.filter(User.department_id == department_id)
     total = q.count()
     pages = ceil(total / size) if total > 0 else 0
     items = q.order_by(User.id).offset((page - 1) * size).limit(size).all()
@@ -42,13 +66,35 @@ def list_users(
 def create_user(body: UserCreate, db: Session = Depends(get_db), admin=Depends(require_admin)):
     if db.query(User).filter(User.username == body.username).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名已存在")
-    if body.email and db.query(User).filter(User.email == body.email).first():
+    email = body.email
+    phone = body.phone
+    mobile = body.mobile
+    name = body.name
+    # 从 StaffInfo 自动填充联系方式
+    if body.gh:
+        staff = db.query(StaffInfo).filter(StaffInfo.gh == body.gh).first()
+        if staff:
+            if not email:
+                email = staff.dzyx
+            if not phone:
+                phone = staff.bgdh
+            if not mobile:
+                mobile = staff.yddh
+            if not name:
+                name = staff.xm
+    password = body.password or (body.gh or body.username)
+    if email and db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="邮箱已存在")
     user = User(
         username=body.username,
-        password_hash=hash_password(body.password),
+        password_hash=hash_password(password),
         role=body.role,
-        email=body.email,
+        email=email,
+        gh=body.gh,
+        name=name,
+        department_id=body.department_id,
+        phone=phone,
+        mobile=mobile,
     )
     db.add(user)
     db.commit()
@@ -69,8 +115,6 @@ def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db), a
     user = db.query(User).get(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    if user.id == admin.id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能通过此接口修改自己")
     if body.email is not None:
         existing = db.query(User).filter(User.email == body.email, User.id != user_id).first()
         if existing:
@@ -80,6 +124,16 @@ def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db), a
         user.role = body.role
     if body.is_active is not None:
         user.is_active = body.is_active
+    if body.gh is not None:
+        user.gh = body.gh
+    if body.name is not None:
+        user.name = body.name
+    if body.department_id is not None:
+        user.department_id = body.department_id
+    if body.phone is not None:
+        user.phone = body.phone
+    if body.mobile is not None:
+        user.mobile = body.mobile
     db.commit()
     db.refresh(user)
     return _user_out(user)
@@ -90,10 +144,15 @@ def delete_user(user_id: int, db: Session = Depends(get_db), admin=Depends(requi
     user = db.query(User).get(user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
-    if user.id == admin.id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="不能删除自己")
-    db.delete(user)
-    db.commit()
+    try:
+        db.delete(user)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该用户有关联的业务数据，无法删除。请先禁用该用户，或将其关联数据转移后再删除。",
+        )
     return {"message": "用户已删除"}
 
 

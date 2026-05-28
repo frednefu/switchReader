@@ -13,5 +13,8 @@ from app.models.f5 import F5Device, F5VirtualServer, F5PoolMember, F5Rule, F5App
 from app.models.zdns import ZDNSDevice, ZDNSRecord, ZDNSDomainMap
 from app.models.qax import QianXinDevice, QianXinServer, QianXinPort, QianXinProcess, QianXinSoftware
 from app.models.scan_worker import ScanWorker
+from app.models.department import Department
+from app.models.staff_info import StaffInfo
+from app.models.api_config import ApiConfig
 
-__all__ = ["User", "Switch", "ScanResult", "RouteTable", "ScanLog", "ScanStep", "Subnet", "History", "VCenter", "VMInventory", "EsxiHost", "Datastore", "F5Device", "F5VirtualServer", "F5PoolMember", "F5Rule", "F5ApplicationMap", "ZDNSDevice", "ZDNSRecord", "ZDNSDomainMap", "QianXinDevice", "QianXinServer", "QianXinPort", "QianXinProcess", "QianXinSoftware", "ScanWorker"]
+__all__ = ["User", "Switch", "ScanResult", "RouteTable", "ScanLog", "ScanStep", "Subnet", "History", "VCenter", "VMInventory", "EsxiHost", "Datastore", "F5Device", "F5VirtualServer", "F5PoolMember", "F5Rule", "F5ApplicationMap", "ZDNSDevice", "ZDNSRecord", "ZDNSDomainMap", "QianXinDevice", "QianXinServer", "QianXinPort", "QianXinProcess", "QianXinSoftware", "ScanWorker", "Department", "StaffInfo", "ApiConfig"]

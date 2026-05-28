@@ -10,15 +10,25 @@ class UserLogin(BaseModel):
 
 class UserCreate(BaseModel):
     username: str
-    password: str
+    password: Optional[str] = None
     email: Optional[str] = None
     role: str = "user"
+    gh: Optional[str] = None
+    name: Optional[str] = None
+    department_id: Optional[int] = None
+    phone: Optional[str] = None
+    mobile: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
     email: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    gh: Optional[str] = None
+    name: Optional[str] = None
+    department_id: Optional[int] = None
+    phone: Optional[str] = None
+    mobile: Optional[str] = None
 
 
 class ProfileUpdate(BaseModel):
@@ -38,6 +48,12 @@ class UserOut(BaseModel):
     role: str
     avatar_url: Optional[str] = None
     is_active: bool
+    gh: Optional[str] = None
+    name: Optional[str] = None
+    department_id: Optional[int] = None
+    department_name: Optional[str] = None
+    phone: Optional[str] = None
+    mobile: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

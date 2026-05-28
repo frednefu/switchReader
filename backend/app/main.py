@@ -4,10 +4,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
 from app.database import engine, Base
-from app.models import User, Switch, ScanResult, RouteTable, ScanLog, Subnet, History, VCenter, VMInventory, EsxiHost, Datastore
+from app.models import User, Switch, ScanResult, RouteTable, ScanLog, Subnet, History, VCenter, VMInventory, EsxiHost, Datastore, Department, StaffInfo, ApiConfig
 from app.api.router import api_router
 from app.services.scheduler_service import start_scheduler, shutdown_scheduler
 from app.version import get_version
+
+
+def _drop_created_by_fk():
+    """移除设备表中 created_by 外键约束，允许自由删除用户。"""
+    tables = ["switches", "vcenters", "f5_devices", "zdns_devices", "qax_devices"]
+    try:
+        inspector = inspect(engine)
+        with engine.connect() as conn:
+            for table in tables:
+                for fk in inspector.get_foreign_keys(table):
+                    if fk.get("constrained_columns") == ["created_by"]:
+                        fk_name = fk["name"]
+                        conn.execute(text(f"ALTER TABLE {table} DROP FOREIGN KEY {fk_name}"))
+                        conn.commit()
+    except Exception:
+        pass
 
 
 def _migrate_columns(table_name: str, columns: list[tuple[str, str]]):
@@ -27,6 +43,7 @@ def _migrate_columns(table_name: str, columns: list[tuple[str, str]]):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _drop_created_by_fk()
     _migrate_columns("vm_inventory", [("provisioned_gb", "FLOAT"), ("used_gb", "FLOAT")])
     _migrate_columns("datastores", [("mounted_host_count", "INTEGER DEFAULT 0"), ("storage_type", "VARCHAR(16) DEFAULT ''")])
     _migrate_columns("switches", [
@@ -42,6 +59,13 @@ async def lifespan(app: FastAPI):
         ("current_tasks", "INTEGER DEFAULT 0"),
         ("max_tasks", "INTEGER DEFAULT 4"),
         ("version", "VARCHAR(32) DEFAULT ''"),
+    ])
+    _migrate_columns("users", [
+        ("gh", "VARCHAR(32)"),
+        ("department_id", "INTEGER"),
+        ("phone", "VARCHAR(32)"),
+        ("mobile", "VARCHAR(32)"),
+        ("name", "VARCHAR(128)"),
     ])
     start_scheduler()
     yield

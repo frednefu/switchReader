@@ -19,7 +19,7 @@
       </div>
 
       <el-menu
-        :default-active="route.path"
+        :default-active="activeMenu"
         :collapse="isCollapse"
         router
         background-color="transparent"
@@ -34,6 +34,8 @@
           <el-icon><DataAnalysis /></el-icon>
           <span>资产画像</span>
         </el-menu-item>
+
+        <div class="menu-group-title" v-show="!isCollapse">资产管理</div>
         <el-menu-item index="/switches">
           <el-icon><Monitor /></el-icon>
           <span>交换机管理</span>
@@ -54,6 +56,8 @@
           <el-icon><Monitor /></el-icon>
           <span>椒图管理</span>
         </el-menu-item>
+
+        <div class="menu-group-title" v-show="!isCollapse">扫描分析</div>
         <el-menu-item index="/results">
           <el-icon><List /></el-icon>
           <span>扫描结果</span>
@@ -78,14 +82,32 @@
           <el-icon><Clock /></el-icon>
           <span>历史记录</span>
         </el-menu-item>
-        <el-menu-item v-if="authStore.isAdmin" index="/users">
-          <el-icon><UserFilled /></el-icon>
-          <span>用户管理</span>
-        </el-menu-item>
-        <el-menu-item v-if="authStore.isAdmin" index="/workers">
-          <el-icon><Cpu /></el-icon>
-          <span>Worker 管理</span>
-        </el-menu-item>
+
+        <template v-if="authStore.isAdmin">
+          <div class="menu-group-title" v-show="!isCollapse">系统管理</div>
+          <el-sub-menu index="/sys">
+            <template #title>
+              <el-icon><Setting /></el-icon>
+              <span>系统管理</span>
+            </template>
+            <el-menu-item index="/sys/api-config">
+              <el-icon><Coin /></el-icon>
+              <span>API 配置</span>
+            </el-menu-item>
+            <el-menu-item index="/sys/departments">
+              <el-icon><OfficeBuilding /></el-icon>
+              <span>组织机构管理</span>
+            </el-menu-item>
+            <el-menu-item index="/sys/accounts">
+              <el-icon><UserFilled /></el-icon>
+              <span>账号管理</span>
+            </el-menu-item>
+            <el-menu-item index="/sys/workers">
+              <el-icon><Cpu /></el-icon>
+              <span>Worker 管理</span>
+            </el-menu-item>
+          </el-sub-menu>
+        </template>
       </el-menu>
 
       <div class="sidebar-footer" v-show="!isCollapse">
@@ -167,6 +189,11 @@ const isCollapse = ref(false)
 const searchText = ref('')
 const appVersion = ref('1.0.0')
 
+const activeMenu = computed(() => {
+  if (route.path.startsWith('/sys/')) return route.path
+  return '/' + route.path.split('/')[1]
+})
+
 const pageTitle = computed(() => {
   const titles = {
     '/dashboard': '仪表盘',
@@ -182,13 +209,14 @@ const pageTitle = computed(() => {
     '/scan-logs': '扫描日志',
     '/history': '历史记录',
     '/asset-profile': '资产画像',
-    '/users': '用户管理',
-    '/workers': 'Worker 管理',
     '/profile': '个人设置',
     '/search': '搜索结果',
+    '/sys/api-config': 'API 配置',
+    '/sys/departments': '组织机构管理',
+    '/sys/accounts': '账号管理',
+    '/sys/workers': 'Worker 管理',
   }
-  const base = '/' + route.path.split('/')[1]
-  return titles[route.path] || titles[base] || ''
+  return titles[route.path] || ''
 })
 
 function handleSearch() {
@@ -251,6 +279,15 @@ onMounted(async () => {
   font-size: 14px;
   font-weight: 700;
   color: #fff;
+}
+
+.menu-group-title {
+  padding: 12px 20px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.25);
+  user-select: none;
 }
 
 .sidebar-footer {
