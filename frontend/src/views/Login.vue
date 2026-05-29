@@ -34,7 +34,14 @@
             {{ loading ? '验证中...' : '登 录' }}
           </el-button>
         </el-form-item>
+        <el-divider>或</el-divider>
+        <el-button type="success" class="cas-btn" @click="handleCasLogin">
+          <el-icon style="margin-right:6px"><Link /></el-icon>统一身份认证
+        </el-button>
       </el-form>
+
+      <!-- CAS 错误提示 -->
+      <el-alert v-if="errorMsg" :title="errorMsg" type="error" :closable="true" show-icon style="margin-top:16px" @close="errorMsg=''" />
     </div>
 
     <div class="login-footer">
@@ -44,14 +51,16 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, reactive, onMounted } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const formRef = ref()
 const loading = ref(false)
+const errorMsg = ref('')
 
 const form = reactive({
   username: '',
@@ -61,6 +70,10 @@ const form = reactive({
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+}
+
+function handleCasLogin() {
+  window.location.href = '/api/auth/cas/login'
 }
 
 async function handleLogin() {
@@ -74,6 +87,19 @@ async function handleLogin() {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  const err = route.query.error
+  if (err === 'cas_unauthorized') {
+    errorMsg.value = `用户「${route.query.user || ''}」未经授权，请联系管理员开通账号后再登录。`
+  } else if (err === 'cas_failed') {
+    errorMsg.value = 'CAS 认证失败，请重试。'
+  } else if (err === 'cas_disabled') {
+    errorMsg.value = `用户「${route.query.user || ''}」已被禁用，请联系管理员。`
+  } else if (err === 'no_ticket') {
+    errorMsg.value = '缺少认证票据，请重新登录。'
+  }
+})
 </script>
 
 <style scoped>
@@ -167,6 +193,15 @@ async function handleLogin() {
 .login-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 8px 24px rgba(99, 102, 241, 0.35);
+}
+
+.cas-btn {
+  width: 100%;
+  height: 44px;
+  font-size: 15px;
+  letter-spacing: 2px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
 }
 
 .login-footer {

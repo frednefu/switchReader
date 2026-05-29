@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 480
     worker_token: str = "change-me-to-a-secure-random-string"
+    cas_server_url: str = "https://cas.nefu.edu.cn/authserver"
+    cas_service_url: str = "https://ov.nefu.edu.cn/api/auth/cas/callback"
 
     model_config = {
         "env_file": ".env",

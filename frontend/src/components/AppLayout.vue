@@ -233,7 +233,7 @@ function handleSearch() {
 
 function handleLogout() {
   authStore.logout()
-  router.push('/login')
+  window.location.href = '/api/auth/cas/logout'
 }
 
 onMounted(async () => {

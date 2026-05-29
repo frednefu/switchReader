@@ -174,10 +174,27 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
+
+  // CAS 回调：从 URL 中提取 token
+  const casToken = to.query.cas_token
+  if (casToken && typeof casToken === 'string') {
+    localStorage.setItem('token', casToken)
+    authStore.token = casToken
+    // 获取用户信息后跳转
+    authStore.fetchUser().finally(() => {
+      const cleanQuery = { ...to.query }
+      delete cleanQuery.cas_token
+      next({ path: '/dashboard', query: cleanQuery, replace: true })
+    })
+    return
+  }
+
   if (to.meta.public) {
     next()
   } else if (!authStore.token) {
-    next('/login')
+    // 访问系统时直接跳转 CAS 认证，/login 页面手动登录
+    window.location.href = '/api/auth/cas/login'
+    return
   } else if (to.meta.admin && !authStore.isAdmin) {
     next('/dashboard')
   } else {
