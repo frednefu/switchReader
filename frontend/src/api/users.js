@@ -20,6 +20,14 @@ export function deleteUser(id) {
   return api.delete(`/users/${id}`).then((r) => r.data)
 }
 
+export function batchDeleteUsers(ids) {
+  return api.post('/users/batch-delete', { ids }).then((r) => r.data)
+}
+
+export function batchDisableUsers(ids, action) {
+  return api.post('/users/batch-disable', { ids, action }).then((r) => r.data)
+}
+
 export function resetUserPassword(id, new_password) {
   return api.put(`/users/${id}/reset-password`, { old_password: '', new_password }).then((r) => r.data)
 }

@@ -39,11 +39,18 @@
     </div>
 
     <!-- 用户列表 -->
-    <el-table :data="users" v-loading="loading" stripe>
+    <div style="margin-bottom:10px" v-if="selectedIds.length > 0">
+      <el-button type="danger" @click="handleBatchDelete">批量删除 ({{ selectedIds.length }})</el-button>
+      <el-button type="warning" @click="handleBatchDisable">批量禁用 ({{ selectedIds.length }})</el-button>
+      <el-button type="success" @click="handleBatchEnable">批量启用 ({{ selectedIds.length }})</el-button>
+    </div>
+    <el-table :data="users" v-loading="loading" stripe @selection-change="onSelect">
+      <el-table-column type="selection" width="45" />
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="username" label="用户名" width="120" />
       <el-table-column prop="name" label="姓名" width="100" />
       <el-table-column prop="gh" label="工号" width="120" />
+      <el-table-column prop="gender" label="性别" width="60" />
       <el-table-column prop="department_name" label="所属部门" min-width="160" show-overflow-tooltip />
       <el-table-column prop="email" label="邮箱" width="180" show-overflow-tooltip />
       <el-table-column prop="phone" label="办公电话" width="130" />
@@ -183,6 +190,12 @@
         <el-form-item label="姓名">
           <el-input v-model="form.name" placeholder="自动从教职工信息填入" />
         </el-form-item>
+        <el-form-item label="性别">
+          <el-select v-model="form.gender" placeholder="性别" style="width:100px">
+            <el-option label="男" value="男" />
+            <el-option label="女" value="女" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="工号" prop="gh">
           <el-input v-model="form.gh" placeholder="工号" :disabled="!isEdit && lookupVerified" style="width: 200px" />
         </el-form-item>
@@ -252,7 +265,7 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
-import { getUsers, createUser, updateUser, deleteUser, resetUserPassword } from '@/api/users'
+import { getUsers, createUser, updateUser, deleteUser, batchDeleteUsers, batchDisableUsers, resetUserPassword } from '@/api/users'
 import { lookupStaff } from '@/api/staff'
 import { getDepartmentTree } from '@/api/departments'
 
@@ -283,6 +296,7 @@ const emptyForm = () => ({
   role: 'user',
   gh: '',
   name: '',
+  gender: '',
   lookup_xm: '',
   department_id: null,
   phone: '',
@@ -382,9 +396,14 @@ function openEdit(row) {
   form.role = row.role
   form.gh = row.gh || ''
   form.name = row.name || ''
+  form.gender = row.gender || ''
   form.department_id = row.department_id
   form.phone = row.phone || ''
   form.mobile = row.mobile || ''
+  form.user_type = row.user_type || 'internal'
+  form.company = row.company || ''
+  form.contact_person = row.contact_person || ''
+  form.notes = row.notes || ''
   dialogVisible.value = true
 }
 
@@ -449,7 +468,6 @@ async function handleSubmit() {
   submitting.value = true
   try {
     const payload = {
-      username: form.username,
       email: form.email || null,
       role: form.role,
       gh: form.gh || null,
@@ -457,12 +475,14 @@ async function handleSubmit() {
       department_id: form.department_id || null,
       phone: form.phone || null,
       mobile: form.mobile || null,
+      gender: form.gender || null,
       user_type: form.user_type || 'internal',
       company: form.company || null,
       contact_person: form.contact_person || null,
       notes: form.notes || null,
     }
     if (!isEdit.value) {
+      payload.username = form.username
       payload.password = form.password
     }
     if (isEdit.value) {
@@ -473,9 +493,10 @@ async function handleSubmit() {
       ElMessage.success('用户已创建')
     }
     dialogVisible.value = false
+    page.value = 1
     await fetchList()
   } catch (e) {
-    ElMessage.error(e.response?.data?.detail || '操作失败')
+    ElMessage.error(e?.response?.data?.detail || e?.message || '操作失败')
   } finally {
     submitting.value = false
   }
@@ -532,17 +553,63 @@ async function handleToggleActive(row) {
   } catch { /* 取消 */ }
 }
 
+const selectedIds = ref([])
+function onSelect(val) { selectedIds.value = val.map(v => v.id) }
+
+async function handleBatchDelete() {
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${selectedIds.value.length} 个用户吗？`, '批量删除', { type: 'error' })
+  } catch { return }
+  try {
+    const res = await batchDeleteUsers(selectedIds.value)
+    ElMessage.success(res.message)
+    selectedIds.value = []
+    page.value = 1
+    await fetchList()
+  } catch (e) { ElMessage.error(e?.response?.data?.detail || '删除失败') }
+}
+
+async function handleBatchDisable() {
+  try {
+    await ElMessageBox.confirm(`确定禁用选中的 ${selectedIds.value.length} 个用户吗？`, '批量禁用', { type: 'warning' })
+  } catch { return }
+  try {
+    const res = await batchDisableUsers(selectedIds.value, 'disable')
+    ElMessage.success(res.message)
+    selectedIds.value = []
+    await fetchList()
+  } catch (e) { ElMessage.error(e?.response?.data?.detail || '操作失败') }
+}
+
+async function handleBatchEnable() {
+  try {
+    const res = await batchDisableUsers(selectedIds.value, 'enable')
+    ElMessage.success(res.message)
+    selectedIds.value = []
+    await fetchList()
+  } catch (e) { ElMessage.error(e?.response?.data?.detail || '操作失败') }
+}
+
+const deleting = ref(false)
+
 async function handleDelete(row) {
+  if (deleting.value) return
   try {
     await ElMessageBox.confirm(`确定删除用户「${row.username}」吗？此操作不可恢复。`, '删除确认', {
-      type: 'warning',
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消',
+      type: 'warning', confirmButtonText: '确定删除', cancelButtonText: '取消',
     })
+  } catch { return }
+  deleting.value = true
+  try {
     await deleteUser(row.id)
     ElMessage.success('用户已删除')
+    page.value = 1
     await fetchList()
-  } catch { /* 取消 */ }
+  } catch (e) {
+    ElMessage.error('删除失败：' + (e?.response?.data?.detail || e?.message || '未知错误'))
+  } finally {
+    deleting.value = false
+  }
 }
 
 function openResetPassword(row) {

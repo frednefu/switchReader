@@ -29,6 +29,7 @@ class User(Base):
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, comment="所属部门")
     phone = Column(String(32), nullable=True, comment="办公电话")
     mobile = Column(String(32), nullable=True, comment="移动电话")
+    gender = Column(String(4), nullable=True, comment="性别")
     user_type = Column(String(8), default="internal", comment="账号类型")
     company = Column(String(256), nullable=True, comment="校外单位名称")
     contact_person = Column(String(64), nullable=True, comment="校外联系人")

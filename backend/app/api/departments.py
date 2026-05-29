@@ -156,8 +156,12 @@ def get_department_users(
         {
             "id": u.id,
             "username": u.username,
-            "email": u.email,
+            "name": u.name,
             "gh": u.gh,
+            "gender": u.gender or "",
+            "email": u.email,
+            "phone": u.phone,
+            "mobile": u.mobile,
             "role": u.role.value if hasattr(u.role, "value") else u.role,
             "is_active": u.is_active,
             "department_name": dept.dwmc,

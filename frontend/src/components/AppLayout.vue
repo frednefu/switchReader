@@ -34,6 +34,10 @@
           <el-icon><DataAnalysis /></el-icon>
           <span>资产画像</span>
         </el-menu-item>
+        <el-menu-item index="/sys/assets">
+          <el-icon><DataBoard /></el-icon>
+          <span>信息资产管理</span>
+        </el-menu-item>
 
         <div class="menu-group-title" v-show="!isCollapse">资产管理</div>
         <el-menu-item index="/switches">
@@ -93,10 +97,6 @@
             <el-menu-item index="/sys/api-config">
               <el-icon><Coin /></el-icon>
               <span>API 配置</span>
-            </el-menu-item>
-            <el-menu-item index="/sys/assets">
-              <el-icon><DataBoard /></el-icon>
-              <span>信息资产管理</span>
             </el-menu-item>
             <el-menu-item index="/sys/departments">
               <el-icon><OfficeBuilding /></el-icon>

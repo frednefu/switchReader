@@ -59,10 +59,13 @@
             <span class="detail-code">编码：{{ selectedDept.dwbm }}</span>
           </div>
           <el-table :data="deptUsers" stripe v-loading="usersLoading" empty-text="该部门暂无账号" size="small">
-            <el-table-column prop="username" label="用户名" width="140" />
-            <el-table-column prop="gh" label="工号" width="120" />
-            <el-table-column prop="email" label="邮箱" min-width="180" />
-            <el-table-column prop="role" label="角色" width="80">
+            <el-table-column prop="gh" label="工号" width="110" />
+            <el-table-column prop="name" label="姓名" width="80" />
+            <el-table-column prop="gender" label="性别" width="55" />
+            <el-table-column prop="email" label="邮箱" min-width="160" show-overflow-tooltip />
+            <el-table-column prop="phone" label="办公电话" width="120" />
+            <el-table-column prop="mobile" label="移动电话" width="120" />
+            <el-table-column prop="role" label="角色" width="70">
               <template #default="{ row }">
                 <el-tag :type="row.role === 'admin' ? 'danger' : 'primary'" size="small">
                   {{ row.role === 'admin' ? '管理员' : '用户' }}

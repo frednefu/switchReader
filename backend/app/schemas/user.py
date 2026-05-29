@@ -18,6 +18,7 @@ class UserCreate(BaseModel):
     department_id: Optional[int] = None
     phone: Optional[str] = None
     mobile: Optional[str] = None
+    gender: Optional[str] = None
     user_type: str = "internal"
     company: Optional[str] = None
     contact_person: Optional[str] = None
@@ -25,6 +26,8 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    model_config = {"extra": "ignore"}
+
     email: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
@@ -37,6 +40,7 @@ class UserUpdate(BaseModel):
     company: Optional[str] = None
     contact_person: Optional[str] = None
     notes: Optional[str] = None
+    gender: Optional[str] = None
 
 
 class ProfileUpdate(BaseModel):
@@ -62,6 +66,7 @@ class UserOut(BaseModel):
     department_name: Optional[str] = None
     phone: Optional[str] = None
     mobile: Optional[str] = None
+    gender: Optional[str] = None
     user_type: Optional[str] = None
     company: Optional[str] = None
     contact_person: Optional[str] = None

@@ -243,7 +243,7 @@ def _collect_vm_storage(vm):
             if storage.uncommitted is not None:
                 uncommitted = round(storage.uncommitted / (1024 ** 3), 2)
             if provisioned is not None and storage.uncommitted is not None:
-                used = round(provisioned - round(storage.uncommitted / (1024 ** 3), 2), 2)
+                used = max(0, round(provisioned - round(storage.uncommitted / (1024 ** 3), 2), 2))
     except Exception:
         pass
     return provisioned, used
@@ -609,13 +609,38 @@ async def _run_vcenter_scan_async(vcenter_id: int, scan_log_id: int | None = Non
             for r in old_rows:
                 old_by_key[(r.vm_name, r.vcenter_id)] = r
 
-            # DELETE + INSERT VMs
+            # Upsert VMs (保留关联数据)
             if scan_log_id:
                 step2_id = add_step(scan_log_id, 2, "VM 清单写入")
                 append_log(scan_log_id, f"写入 {len(rows)} 条 VM 记录...")
-            write_db.query(VMInventory).filter(VMInventory.vcenter_id == vcenter_id).delete()
             for r in rows:
-                write_db.add(VMInventory(vcenter_id=vcenter_id, **r))
+                vm_name = r.get("vm_name", "")
+                old = old_by_key.get((vm_name, vcenter_id))
+                # 先尝试按 vm_name 找已存在的记录（可能是 delete+insert 留下的）
+                existing = write_db.query(VMInventory).filter(
+                    VMInventory.vcenter_id == vcenter_id,
+                    VMInventory.vm_name == vm_name
+                ).first()
+                if existing:
+                    # 只更新来自 vCenter 的字段
+                    for k, v in r.items():
+                        if hasattr(existing, k) and k not in ("id", "department_id", "owner_user_id", "claim_status", "claimed_by", "claimed_at"):
+                            setattr(existing, k, v)
+                elif old:
+                    # 恢复快照中的关联字段
+                    r["department_id"] = old.department_id
+                    r["owner_user_id"] = old.owner_user_id
+                    r["claim_status"] = old.claim_status or "unlinked"
+                    r["claimed_by"] = old.claimed_by
+                    r["claimed_at"] = old.claimed_at
+                    write_db.add(VMInventory(vcenter_id=vcenter_id, **r))
+                else:
+                    write_db.add(VMInventory(vcenter_id=vcenter_id, **r))
+            # 删除已不在 vCenter 中的旧 VM（新扫描没有的）
+            new_names = {r.get("vm_name") for r in rows}
+            for old_r in old_rows:
+                if old_r.vm_name not in new_names:
+                    write_db.delete(old_r)
             if scan_log_id:
                 finish_step(step2_id, "success", len(rows), len(rows))
                 update_progress(scan_log_id, 50, "VM 清单写入完成")

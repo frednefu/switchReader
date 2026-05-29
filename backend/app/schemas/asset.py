@@ -79,3 +79,4 @@ class AutoMatchResult(BaseModel):
     matched: int
     failed: int
     details: List[dict] = []
+    errors: List[str] = []

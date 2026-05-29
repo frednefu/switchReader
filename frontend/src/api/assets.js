@@ -24,6 +24,18 @@ export function executeAutoMatch() {
   return api.post('/assets/auto-match').then((r) => r.data)
 }
 
+export function matchOwner() {
+  return api.post('/assets/auto-match/match-owner').then((r) => r.data)
+}
+
+export function startMatchOwner() {
+  return api.post('/assets/auto-match/start-owner').then((r) => r.data)
+}
+
+export function statusMatchOwner() {
+  return api.get('/assets/auto-match/status-owner').then((r) => r.data)
+}
+
 export function claimAssets(data) {
   return api.post('/assets/claim', data).then((r) => r.data)
 }
@@ -34,4 +46,12 @@ export function getVMFilters() {
 
 export function assignAssets(data) {
   return api.post('/assets/assign', data).then((r) => r.data)
+}
+
+export function revokeAssets(data) {
+  return api.post('/assets/revoke', data).then((r) => r.data)
+}
+
+export function resetAllAssets() {
+  return api.post('/assets/reset-all').then((r) => r.data)
 }

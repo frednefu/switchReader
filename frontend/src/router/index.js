@@ -131,7 +131,7 @@ const routes = [
         path: 'sys/assets',
         name: 'AssetManage',
         component: () => import('@/views/assets/AssetManage.vue'),
-        meta: { title: '信息资产管理', admin: true },
+        meta: { title: '信息资产管理' },
       },
       {
         path: 'sys/departments',

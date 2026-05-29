@@ -29,6 +29,7 @@ def _user_out(user: User) -> UserOut:
         "department_name": user.department.dwmc if user.department else None,
         "phone": user.phone,
         "mobile": user.mobile,
+        "gender": user.gender or "",
         "user_type": user.user_type or "internal",
         "company": user.company,
         "contact_person": user.contact_person,
@@ -99,6 +100,7 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin=Depends(r
         department_id=body.department_id,
         phone=phone,
         mobile=mobile,
+        gender=body.gender,
         user_type=body.user_type or "internal",
         company=body.company,
         contact_person=body.contact_person,
@@ -142,6 +144,8 @@ def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db), a
         user.phone = body.phone
     if body.mobile is not None:
         user.mobile = body.mobile
+    if body.gender is not None:
+        user.gender = body.gender
     if body.user_type is not None:
         user.user_type = body.user_type
     if body.company is not None:
@@ -170,6 +174,55 @@ def delete_user(user_id: int, db: Session = Depends(get_db), admin=Depends(requi
             detail="该用户有关联的业务数据，无法删除。请先禁用该用户，或将其关联数据转移后再删除。",
         )
     return {"message": "用户已删除"}
+
+
+@router.post("/batch-delete")
+def batch_delete_users(
+    body: dict,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+):
+    """批量删除用户。"""
+    ids = body.get("ids", [])
+    if not ids:
+        raise HTTPException(status_code=400, detail="请选择要删除的用户")
+    deleted = 0
+    errors = []
+    for uid in ids:
+        try:
+            user = db.query(User).get(uid)
+            if user and user.id != admin.id:
+                db.delete(user)
+                db.commit()
+                deleted += 1
+            elif user:
+                errors.append(f"{user.username}: 不能删除自己")
+        except IntegrityError:
+            db.rollback()
+            errors.append(f"ID={uid}: 有关联数据无法删除")
+    return {"message": f"成功删除 {deleted} 个用户", "deleted": deleted, "errors": errors}
+
+
+@router.post("/batch-disable")
+def batch_disable_users(
+    body: dict,
+    db: Session = Depends(get_db),
+    admin=Depends(require_admin),
+):
+    """批量禁用/启用用户。"""
+    ids = body.get("ids", [])
+    action = body.get("action", "disable")  # disable or enable
+    if not ids:
+        raise HTTPException(status_code=400, detail="请选择用户")
+    new_state = 0 if action == "disable" else 1
+    updated = 0
+    for uid in ids:
+        user = db.query(User).get(uid)
+        if user and user.id != admin.id:
+            user.is_active = bool(new_state)
+            updated += 1
+    db.commit()
+    return {"message": f"成功{action} {updated} 个用户", "updated": updated}
 
 
 @router.put("/{user_id}/reset-password")

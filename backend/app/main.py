@@ -77,6 +77,7 @@ async def lifespan(app: FastAPI):
         ("company", "VARCHAR(256)"),
         ("contact_person", "VARCHAR(64)"),
         ("notes", "VARCHAR(512)"),
+        ("gender", "VARCHAR(4)"),
     ])
     start_scheduler()
     yield

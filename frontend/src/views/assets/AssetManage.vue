@@ -4,8 +4,10 @@
       <h2>信息资产管理</h2>
       <div class="header-right">
         <el-switch v-model="hideEmpty" active-text="隐藏空部门" @change="loadTree" />
-        <el-button @click="showMatchPreview" :loading="matchLoading">自动关联预览</el-button>
-        <el-button type="primary" @click="handleAutoMatch" :loading="matchLoading">执行自动关联</el-button>
+        <el-button @click="showMatchPreview" :loading="previewLoading">自动关联预览</el-button>
+        <el-button type="primary" @click="handleAutoMatch" :loading="autoMatchLoading">自动分组</el-button>
+        <el-button type="success" plain @click="handleMatchOwner" :loading="ownerMatchLoading">匹配负责人</el-button>
+        <el-button type="danger" plain @click="handleResetAll">重置关联</el-button>
         <el-button type="success" @click="showClaimDialog">资产认领</el-button>
         <el-button v-if="authStore.isAdmin && selectedVMs.length > 0" type="warning" @click="showAssignDialog(selectedVMs)">指派选中 ({{ selectedVMs.length }})</el-button>
         <el-button v-if="authStore.isAdmin" type="warning" plain @click="showAssignDialog([])">搜索指派</el-button>
@@ -45,13 +47,22 @@
       <div class="detail-panel">
         <template v-if="selectedNode">
           <div class="detail-header">
-            <h3>{{ selectedNode.label }}</h3>
+            <h3>{{ selectedNode.full_name || selectedNode.label }}</h3>
           </div>
           <el-tabs v-model="activeTab">
             <el-tab-pane label="虚拟机清单" name="vms">
               <div class="filter-bar">
-                <el-input v-model="vmSearch" placeholder="搜索名称、IP、MAC、OS、集群、主机、网络、文件夹..." clearable size="small" style="width:300px" @keyup.enter="vmPage=1;loadVMs()" @clear="vmPage=1;loadVMs()" />
-                <el-select v-model="vmPowerFilter" placeholder="电源状态" clearable size="small" style="width:110px" @change="vmPage=1;loadVMs()">
+                <el-input v-model="vmSearch" placeholder="搜索名称、IP、MAC、OS..." clearable size="small" style="width:260px" @keyup.enter="vmPage=1;loadVMs()" @clear="vmPage=1;loadVMs()" />
+                <el-select v-model="vmClaimFilter" placeholder="分组状态" clearable size="small" style="width:110px" @change="vmPage=1;loadVMs()">
+                  <el-option label="未分组" value="unlinked" />
+                  <el-option label="自动" value="auto" />
+                  <el-option label="手动" value="manual" />
+                </el-select>
+                <el-select v-model="vmClaimedFilter" placeholder="认领状态" clearable size="small" style="width:110px" @change="vmPage=1;loadVMs()">
+                  <el-option label="已认领" value="yes" />
+                  <el-option label="未认领" value="no" />
+                </el-select>
+                <el-select v-model="vmPowerFilter" placeholder="电源状态" clearable size="small" style="width:100px" @change="vmPage=1;loadVMs()">
                   <el-option v-for="s in filterOptions.power_states" :key="s" :label="s==='poweredOn'?'开机':'关机'" :value="s" />
                 </el-select>
                 <el-select v-model="vmOsFilter" placeholder="操作系统" clearable filterable size="small" style="width:160px" @change="vmPage=1;loadVMs()">
@@ -64,8 +75,10 @@
                   <el-option v-for="s in filterOptions.folders" :key="s" :label="s" :value="s" />
                 </el-select>
                 <el-button type="primary" size="small" @click="vmPage=1;loadVMs()">查询</el-button>
+                <el-button type="success" size="small" :disabled="selectedVMs.length===0" @click="handleClaim">认领资产</el-button>
+                <el-button type="warning" size="small" :disabled="selectedVMs.length===0" @click="handleRevoke">撤销认领</el-button>
               </div>
-              <div class="total-info">共 {{ vmTotal }} 条</div>
+              <div class="total-info">共 {{ vmTotal }} 条，已选 {{ selectedVMs.length }} 条</div>
               <el-table :data="vmList" v-loading="vmLoading" stripe size="small" max-height="calc(100vh - 400px)" @selection-change="onVMSelect">
                 <el-table-column type="selection" width="35" />
                 <el-table-column prop="vm_name" label="名称" width="150" show-overflow-tooltip />
@@ -74,6 +87,12 @@
                     <el-tag :type="row.power_state === 'poweredOn' ? 'success' : 'info'" size="small">{{ row.power_state === 'poweredOn' ? '开' : '关' }}</el-tag>
                   </template>
                 </el-table-column>
+                <el-table-column prop="provisioned_gb" label="置备空间" width="80">
+                  <template #default="{ row }">{{ row.provisioned_gb ? row.provisioned_gb + 'G' : '-' }}</template>
+                </el-table-column>
+                <el-table-column prop="used_gb" label="已用空间" width="80">
+                  <template #default="{ row }">{{ row.used_gb ? row.used_gb + 'G' : '-' }}</template>
+                </el-table-column>
                 <el-table-column prop="cpu_count" label="CPU" width="50" />
                 <el-table-column prop="memory_gb" label="内存" width="55">
                   <template #default="{ row }">{{ row.memory_gb ? row.memory_gb + 'G' : '-' }}</template>
@@ -81,14 +100,22 @@
                 <el-table-column prop="os_name" label="操作系统" min-width="130" show-overflow-tooltip />
                 <el-table-column prop="ip_address" label="IP" width="130" show-overflow-tooltip />
                 <el-table-column prop="mac_address" label="MAC" width="130" show-overflow-tooltip />
+                <el-table-column prop="vcenter_name" label="vCenter" width="100" show-overflow-tooltip />
+                <el-table-column prop="resource_pool" label="资源池" width="100" show-overflow-tooltip />
+                <el-table-column prop="vm_folder" label="文件夹" width="120" show-overflow-tooltip />
+                <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
                 <el-table-column prop="f5_public_ips" label="公网IP" width="130" show-overflow-tooltip />
                 <el-table-column prop="f5_domains" label="关联域名" min-width="140" show-overflow-tooltip />
-                <el-table-column prop="vm_folder" label="文件夹" width="120" show-overflow-tooltip />
-                <el-table-column prop="claim_status" label="关联" width="60">
+                <el-table-column prop="claim_status" label="分组" width="70">
                   <template #default="{ row }">
-                    <el-tag :type="row.claim_status === 'auto' ? 'success' : row.claim_status === 'manual' ? 'primary' : 'info'" size="small">
-                      {{ statusLabel(row.claim_status) }}
+                    <el-tag :type="row.claim_status === 'auto' ? 'success' : row.claim_status === 'manual' ? '' : 'info'" size="small">
+                      {{ row.claim_status === 'auto' ? '自动' : row.claim_status === 'manual' ? '手动' : '未分组' }}
                     </el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="认领" width="70">
+                  <template #default="{ row }">
+                    <el-tag :type="row.owner_name ? '' : 'info'" size="small">{{ row.owner_name ? '已认领' : '未认领' }}</el-tag>
                   </template>
                 </el-table-column>
                 <el-table-column prop="owner_name" label="负责人" width="80" />
@@ -107,13 +134,15 @@
 
             <el-tab-pane label="域名清单" name="domains">
               <div class="filter-bar">
-                <el-input v-model="domainSearch" placeholder="搜索域名或 IP" clearable size="small" style="width:260px" @keyup.enter="domainPage=1;loadDomains()" @clear="domainPage=1;loadDomains()" />
-                <el-select v-model="domainTypeFilter" placeholder="记录类型" clearable size="small" style="width:110px" @change="domainPage=1;loadDomains()">
+                <el-input v-model="domainSearch" placeholder="搜索域名或 IP" clearable size="small" style="width:220px" @keyup.enter="domainPage=1;loadDomains()" @clear="domainPage=1;loadDomains()" />
+                <el-select v-model="domainTypeFilter" placeholder="记录类型" clearable size="small" style="width:100px" @change="domainPage=1;loadDomains()">
                   <el-option label="A" value="A" />
                   <el-option label="AAAA" value="AAAA" />
                   <el-option label="CNAME" value="CNAME" />
                 </el-select>
-                <el-button v-if="authStore.isAdmin && selectedDomains.length > 0" type="warning" size="small" @click="assignDomains">指派选中 ({{ selectedDomains.length }})</el-button>
+                <el-button type="primary" size="small" @click="domainPage=1;loadDomains()">查询</el-button>
+                <el-button type="success" size="small" :disabled="selectedDomains.length===0" @click="assignDomains">认领域名</el-button>
+                <el-button type="warning" size="small" :disabled="selectedDomains.length===0" @click="revokeDomains">撤销认领</el-button>
               </div>
               <div class="total-info">共 {{ domainTotal }} 条，已选 {{ selectedDomains.length }} 条</div>
               <el-table :data="domainList" v-loading="domainLoading" stripe size="small" max-height="calc(100vh - 400px)" @selection-change="onDomainSelect">
@@ -126,7 +155,13 @@
                     <el-tag :type="row.source === 'ZDNS' ? '' : 'success'" size="small">{{ row.source }}</el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="vm_name" label="关联 VM" min-width="140" show-overflow-tooltip />
+                <el-table-column prop="vm_name" label="关联 VM" min-width="120" show-overflow-tooltip />
+                <el-table-column prop="owner_name" label="负责人" width="80" />
+                <el-table-column label="认领" width="65">
+                  <template #default="{ row }">
+                    <el-tag :type="row.owner_name ? '' : 'info'" size="small">{{ row.owner_name ? '已认领' : '未认领' }}</el-tag>
+                  </template>
+                </el-table-column>
               </el-table>
               <el-pagination
                 v-if="domainTotal > domainSize"
@@ -178,8 +213,8 @@
       </el-input>
       <div style="margin-top:12px;display:flex;gap:10px">
         <el-tree-select v-model="assignDeptId" :data="deptTreeAll" :props="{label:'dwmc',value:'id',children:'children'}" placeholder="选择目标部门" clearable filterable check-strictly style="flex:1" />
-        <el-select v-model="assignUserId" placeholder="或选择具体人员" clearable filterable style="width:200px" @change="assignUserId=$event">
-          <el-option v-for="u in userOptions" :key="u.id" :label="u.username + (u.name ? ' - ' + u.name : '')" :value="u.id" />
+        <el-select v-model="assignUserId" placeholder="搜索人员姓名" clearable filterable remote :remote-method="searchUsers" :loading="userSearching" style="width:200px">
+          <el-option v-for="u in userOptions" :key="u.id" :label="`${u.name||''} - ${u.gh||''} (${u.department_name||''})`" :value="u.id" />
         </el-select>
       </div>
       <el-table :data="assignSearchResult" stripe size="small" style="margin-top:12px" max-height="300" @selection-change="onAssignSelect">
@@ -213,12 +248,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, WarningFilled, OfficeBuilding } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/store/auth'
 import { getDepartmentTree } from '@/api/departments'
-import { getAssetTree, getDeptVMs, getDeptDomains, getVMFilters, searchAssets, previewAutoMatch, executeAutoMatch, claimAssets, assignAssets } from '@/api/assets'
+import { getAssetTree, getDeptVMs, getDeptDomains, getVMFilters, searchAssets, previewAutoMatch, executeAutoMatch, startMatchOwner, statusMatchOwner, claimAssets, assignAssets, revokeAssets, resetAllAssets } from '@/api/assets'
 import { getUsers } from '@/api/users'
 
 const authStore = useAuthStore()
@@ -234,6 +269,8 @@ const vmList = ref([])
 const vmLoading = ref(false)
 const filterOptions = ref({ power_states: [], os_names: [], networks: [], folders: [] })
 const vmSearch = ref('')
+const vmClaimFilter = ref('')
+const vmClaimedFilter = ref('')
 const vmPowerFilter = ref('')
 const vmOsFilter = ref('')
 const vmNetFilter = ref('')
@@ -262,6 +299,27 @@ const claimSubmitting = ref(false)
 const selectedVMs = ref([])
 function onVMSelect(val) { selectedVMs.value = val }
 
+async function handleClaim() {
+  const ids = selectedVMs.value.map(v => v.id).filter(Boolean)
+  if (ids.length === 0) return ElMessage.warning('请选择 VM')
+  try {
+    const res = await claimAssets({ vm_ids: ids })
+    ElMessage.success(res.message)
+    await loadVMs(); await loadTree()
+  } catch (e) { ElMessage.error(e.response?.data?.detail || '认领失败') }
+}
+
+async function handleRevoke() {
+  const ids = selectedVMs.value.map(v => v.id).filter(Boolean)
+  if (ids.length === 0) return ElMessage.warning('请选择 VM')
+  try {
+    await ElMessageBox.confirm('确定撤销选中资产的认领吗？', '撤销确认', { type: 'warning' })
+    const res = await revokeAssets({ vm_ids: ids })
+    ElMessage.success(res.message)
+    await loadVMs(); await loadTree()
+  } catch { /* 取消 */ }
+}
+
 const assignVisible = ref(false)
 const assignKeyword = ref('')
 const assignSearching = ref(false)
@@ -271,8 +329,18 @@ const assignSubmitting = ref(false)
 const assignDeptId = ref(null)
 const assignUserId = ref(null)
 const userOptions = ref([])
+const userSearching = ref(false)
+async function searchUsers(query) {
+  if (!query || query.length < 1) { userOptions.value = []; return }
+  userSearching.value = true
+  try {
+    const res = await getUsers({ search: query, size: 20 })
+    userOptions.value = res.items
+  } catch { userOptions.value = [] } finally { userSearching.value = false }
+}
 
-const matchLoading = ref(false)
+const autoMatchLoading = ref(false)
+const ownerMatchLoading = ref(false)
 const matchPreviewVisible = ref(false)
 const matchPreviewData = ref({ items: [], total_vms: 0, matched_count: 0 })
 
@@ -336,8 +404,10 @@ async function loadVMs() {
     const deptId = selectedNode.value.id === -1 ? 0 : selectedNode.value.id
     const res = await getDeptVMs(deptId, {
       page: vmPage.value, size: vmSize.value, search: vmSearch.value,
-      power_state: vmPowerFilter.value, os_name: vmOsFilter.value,
-      network_name: vmNetFilter.value, vm_folder: vmFolderFilter.value,
+      claim_status: vmClaimFilter.value, claimed: vmClaimedFilter.value,
+      power_state: vmPowerFilter.value,
+      os_name: vmOsFilter.value, network_name: vmNetFilter.value,
+      vm_folder: vmFolderFilter.value,
     })
     vmList.value = res.items
     vmTotal.value = res.total
@@ -359,21 +429,61 @@ async function loadDomains() {
 }
 
 async function showMatchPreview() {
-  matchLoading.value = true
+  previewLoading.value = true
   try {
     matchPreviewData.value = await previewAutoMatch()
     matchPreviewVisible.value = true
-  } catch { ElMessage.error('加载预览失败') } finally { matchLoading.value = false }
+  } catch { ElMessage.error('加载预览失败') } finally { previewLoading.value = false }
+}
+
+async function handleResetAll() {
+  try {
+    await ElMessageBox.confirm(
+      '确定要重置所有关联数据吗？此操作将清空所有虚拟机的部门归属、负责人和认领状态，且不可恢复！',
+      '重置确认',
+      { confirmButtonText: '确定重置', cancelButtonText: '取消', type: 'error' }
+    )
+    const res = await resetAllAssets()
+    ElMessage.success(res.message)
+    await loadTree()
+    if (selectedNode.value) { await loadVMs(); await loadDomains() }
+  } catch { /* 取消 */ }
+}
+
+let pollTimer = null
+onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer) })
+
+async function handleMatchOwner() {
+  ownerMatchLoading.value = true
+  try {
+    const start = await startMatchOwner()
+    if (!start.running) { ElMessage.warning(start.message); return }
+    ElMessage.info(start.message)
+    pollTimer = setInterval(async () => {
+      const st = await statusMatchOwner()
+      if (!st.running) {
+        clearInterval(pollTimer)
+        pollTimer = null
+        ownerMatchLoading.value = false
+        ElMessage.success(st.message)
+        await loadTree()
+        if (selectedNode.value) { await loadVMs() }
+      }
+    }, 2000)
+  } catch (e) {
+    ownerMatchLoading.value = false
+    ElMessage.error('启动任务失败：' + (e?.response?.data?.detail || e?.message || ''))
+  }
 }
 
 async function handleAutoMatch() {
-  matchLoading.value = true
+  autoMatchLoading.value = true
   try {
     const res = await executeAutoMatch()
     ElMessage.success(`自动关联完成：${res.total_vms} 个 VM，匹配 ${res.matched}，失败 ${res.failed}`)
     await loadTree()
     if (selectedNode.value) { await loadVMs(); await loadDomains() }
-  } catch { ElMessage.error('自动关联失败') } finally { matchLoading.value = false }
+  } catch { ElMessage.error('自动关联失败') } finally { autoMatchLoading.value = false }
 }
 
 function showClaimDialog() {
@@ -425,8 +535,7 @@ async function showAssignDialog(preSelected = []) {
   // 加载部门和用户选项
   try {
     deptTreeAll.value = await getDepartmentTree(true)
-    const users = await getUsers({ size: 999 })
-    userOptions.value = users.items
+    userOptions.value = []
   } catch { /* 静默 */ }
   assignVisible.value = true
 }
@@ -467,11 +576,22 @@ function assignDomains() {
   assignDeptId.value = null
   assignUserId.value = null
   assignSelected.value = []
-  try {
-    getDepartmentTree(true).then(t => { deptTreeAll.value = t })
-    getUsers({ size: 999 }).then(r => { userOptions.value = r.items })
-  } catch { /* */ }
+  userOptions.value = []
+  try { getDepartmentTree(true).then(t => { deptTreeAll.value = t }) } catch { /* */ }
   assignVisible.value = true
+}
+
+async function revokeDomains() {
+  if (selectedDomains.value.length === 0) return ElMessage.warning('请选择域名')
+  try {
+    await ElMessageBox.confirm('确定撤销选中域名的认领吗？注意：域名关联到VM，撤销将清空对应VM的负责人。', '撤销确认', { type: 'warning' })
+    // 通过域名关联的 VM 来撤销
+    const vmIds = [...new Set(selectedDomains.value.map(d => d.vm_id).filter(Boolean))]
+    if (vmIds.length === 0) return ElMessage.warning('选中的域名没有关联 VM')
+    const res = await revokeAssets({ vm_ids: vmIds })
+    ElMessage.success(res.message)
+    await loadDomains(); await loadTree()
+  } catch { /* 取消 */ }
 }
 
 onMounted(async () => {

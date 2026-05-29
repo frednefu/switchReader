@@ -30,13 +30,13 @@ def claim_assets(
     claimed = 0
     for vid in body.vm_ids:
         db.execute(text(
-            "UPDATE vm_inventory SET department_id = :did, owner_user_id = :uid, "
-            "claim_status = 'manual', claimed_by = :uid, claimed_at = NOW() "
-            "WHERE id = :vid AND (department_id IS NULL OR claim_status = 'unlinked')"
+            "UPDATE vm_inventory SET department_id = COALESCE(department_id, :did), "
+            "owner_user_id = :uid, claimed_by = :uid, claimed_at = NOW() "
+            "WHERE id = :vid"
         ), {"did": dept_id, "uid": current_user.id, "vid": vid})
         claimed += 1
     db.commit()
-    return {"message": f"成功认领 {claimed} 个资产到部门", "claimed": claimed}
+    return {"message": f"成功认领 {claimed} 个资产", "claimed": claimed}
 
 
 @router.post("/assign")
@@ -72,3 +72,37 @@ def assign_assets(
         assigned += 1
     db.commit()
     return {"message": f"成功指派 {assigned} 个资产", "assigned": assigned}
+
+
+@router.post("/revoke")
+def revoke_assets(
+    body: ClaimRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """撤销认领：清空选中资产的负责人和部门归属。"""
+    if not body.vm_ids:
+        raise HTTPException(status_code=400, detail="请选择要撤销的资产")
+
+    revoked = 0
+    for vid in body.vm_ids:
+        db.execute(text(
+            "UPDATE vm_inventory SET owner_user_id = NULL, claimed_by = NULL, claimed_at = NULL WHERE id = :vid"
+        ), {"vid": vid})
+        revoked += 1
+    db.commit()
+    return {"message": f"成功撤销 {revoked} 个资产认领", "revoked": revoked}
+
+
+@router.post("/reset-all")
+def reset_all_assets(
+    db: Session = Depends(get_db),
+    _=Depends(require_admin),
+):
+    """重置所有关联数据：清空所有 VM 的部门、负责人、认领状态。"""
+    result = db.execute(text(
+        "UPDATE vm_inventory SET department_id = NULL, owner_user_id = NULL, "
+        "claim_status = 'unlinked', claimed_by = NULL, claimed_at = NULL"
+    ))
+    db.commit()
+    return {"message": f"已重置 {result.rowcount} 条资产关联数据", "count": result.rowcount}
