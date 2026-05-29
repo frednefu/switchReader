@@ -9,6 +9,11 @@ class UserRole(str, enum.Enum):
     user = "user"
 
 
+class UserType(str, enum.Enum):
+    internal = "internal"  # 本校
+    external = "external"  # 校外
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -24,6 +29,10 @@ class User(Base):
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, comment="所属部门")
     phone = Column(String(32), nullable=True, comment="办公电话")
     mobile = Column(String(32), nullable=True, comment="移动电话")
+    user_type = Column(String(8), default="internal", comment="账号类型")
+    company = Column(String(256), nullable=True, comment="校外单位名称")
+    contact_person = Column(String(64), nullable=True, comment="校外联系人")
+    notes = Column(String(512), nullable=True, comment="备注")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

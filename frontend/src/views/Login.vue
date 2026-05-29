@@ -38,7 +38,7 @@
     </div>
 
     <div class="login-footer">
-      <span>默认管理员: admin / Admin123!</span>
+      <span>OmniView 全维视界</span>
     </div>
   </div>
 </template>

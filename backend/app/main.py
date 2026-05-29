@@ -60,12 +60,23 @@ async def lifespan(app: FastAPI):
         ("max_tasks", "INTEGER DEFAULT 4"),
         ("version", "VARCHAR(32) DEFAULT ''"),
     ])
+    _migrate_columns("vm_inventory", [
+        ("department_id", "INTEGER"),
+        ("owner_user_id", "INTEGER"),
+        ("claim_status", "VARCHAR(16) DEFAULT 'unlinked'"),
+        ("claimed_by", "INTEGER"),
+        ("claimed_at", "DATETIME"),
+    ])
     _migrate_columns("users", [
         ("gh", "VARCHAR(32)"),
         ("department_id", "INTEGER"),
         ("phone", "VARCHAR(32)"),
         ("mobile", "VARCHAR(32)"),
         ("name", "VARCHAR(128)"),
+        ("user_type", "VARCHAR(8) DEFAULT 'internal'"),
+        ("company", "VARCHAR(256)"),
+        ("contact_person", "VARCHAR(64)"),
+        ("notes", "VARCHAR(512)"),
     ])
     start_scheduler()
     yield

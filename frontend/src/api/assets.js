@@ -1,0 +1,37 @@
+import api from './index'
+
+export function getAssetTree() {
+  return api.get('/assets/tree').then((r) => r.data)
+}
+
+export function getDeptVMs(deptId, params = {}) {
+  return api.get(`/assets/departments/${deptId}/vms`, { params }).then((r) => r.data)
+}
+
+export function getDeptDomains(deptId, params = {}) {
+  return api.get(`/assets/departments/${deptId}/domains`, { params }).then((r) => r.data)
+}
+
+export function searchAssets(keyword) {
+  return api.get('/assets/search', { params: { keyword } }).then((r) => r.data)
+}
+
+export function previewAutoMatch() {
+  return api.get('/assets/auto-match/preview').then((r) => r.data)
+}
+
+export function executeAutoMatch() {
+  return api.post('/assets/auto-match').then((r) => r.data)
+}
+
+export function claimAssets(data) {
+  return api.post('/assets/claim', data).then((r) => r.data)
+}
+
+export function getVMFilters() {
+  return api.get('/assets/vm-filters').then((r) => r.data)
+}
+
+export function assignAssets(data) {
+  return api.post('/assets/assign', data).then((r) => r.data)
+}

@@ -94,6 +94,10 @@
               <el-icon><Coin /></el-icon>
               <span>API 配置</span>
             </el-menu-item>
+            <el-menu-item index="/sys/assets">
+              <el-icon><DataBoard /></el-icon>
+              <span>信息资产管理</span>
+            </el-menu-item>
             <el-menu-item index="/sys/departments">
               <el-icon><OfficeBuilding /></el-icon>
               <span>组织机构管理</span>
@@ -212,6 +216,7 @@ const pageTitle = computed(() => {
     '/profile': '个人设置',
     '/search': '搜索结果',
     '/sys/api-config': 'API 配置',
+    '/sys/assets': '信息资产管理',
     '/sys/departments': '组织机构管理',
     '/sys/accounts': '账号管理',
     '/sys/workers': 'Worker 管理',

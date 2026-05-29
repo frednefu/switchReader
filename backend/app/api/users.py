@@ -29,6 +29,10 @@ def _user_out(user: User) -> UserOut:
         "department_name": user.department.dwmc if user.department else None,
         "phone": user.phone,
         "mobile": user.mobile,
+        "user_type": user.user_type or "internal",
+        "company": user.company,
+        "contact_person": user.contact_person,
+        "notes": user.notes,
         "created_at": user.created_at,
         "updated_at": user.updated_at,
     }
@@ -95,6 +99,10 @@ def create_user(body: UserCreate, db: Session = Depends(get_db), admin=Depends(r
         department_id=body.department_id,
         phone=phone,
         mobile=mobile,
+        user_type=body.user_type or "internal",
+        company=body.company,
+        contact_person=body.contact_person,
+        notes=body.notes,
     )
     db.add(user)
     db.commit()
@@ -134,6 +142,14 @@ def update_user(user_id: int, body: UserUpdate, db: Session = Depends(get_db), a
         user.phone = body.phone
     if body.mobile is not None:
         user.mobile = body.mobile
+    if body.user_type is not None:
+        user.user_type = body.user_type
+    if body.company is not None:
+        user.company = body.company
+    if body.contact_person is not None:
+        user.contact_person = body.contact_person
+    if body.notes is not None:
+        user.notes = body.notes
     db.commit()
     db.refresh(user)
     return _user_out(user)

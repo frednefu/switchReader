@@ -98,8 +98,16 @@
       @closed="resetForm"
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px" :disabled="submitting">
-        <!-- 新建：教职工查询 -->
+        <!-- 新建：账号类型 -->
         <template v-if="!isEdit">
+          <el-form-item label="账号类型">
+            <el-radio-group v-model="form.user_type" @change="onUserTypeChange">
+              <el-radio value="internal">本校</el-radio>
+              <el-radio value="external">校外</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <!-- 本校：教职工验证 -->
+          <template v-if="form.user_type === 'internal'">
           <el-divider content-position="left">教职工信息验证</el-divider>
           <el-form-item label="工号">
             <el-input v-model="form.gh" placeholder="输入工号（可选）" style="width: 160px" />
@@ -145,6 +153,20 @@
           <div v-if="lookupResult && !lookupResult.found" class="lookup-result">
             <el-alert :title="lookupResult.message || '未找到匹配的教职工'" type="error" :closable="false" show-icon />
           </div>
+          </template>
+          <!-- 校外：单位信息 -->
+          <template v-if="form.user_type === 'external'">
+            <el-divider content-position="left">校外用户信息</el-divider>
+            <el-form-item label="单位名称">
+              <el-input v-model="form.company" placeholder="请输入单位名称" />
+            </el-form-item>
+            <el-form-item label="联系人">
+              <el-input v-model="form.contact_person" placeholder="请输入联系人" />
+            </el-form-item>
+            <el-form-item label="备注">
+              <el-input v-model="form.notes" type="textarea" :rows="2" placeholder="选填" />
+            </el-form-item>
+          </template>
         </template>
 
         <!-- 账号设置 -->
@@ -265,6 +287,10 @@ const emptyForm = () => ({
   department_id: null,
   phone: '',
   mobile: '',
+  user_type: 'internal',
+  company: '',
+  contact_person: '',
+  notes: '',
 })
 
 const form = reactive(emptyForm())
@@ -276,8 +302,18 @@ const selectedStaff = computed(() => {
 })
 
 const lookupVerified = computed(() => {
+  if (form.user_type === 'external') return true
   return lookupResult.value?.found === true && selectedStaff.value !== null
 })
+
+function onUserTypeChange() {
+  lookupResult.value = null
+  selectedStaffIndex.value = 0
+  if (form.user_type === 'external') {
+    form.gh = ''
+    form.lookup_xm = ''
+  }
+}
 
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -421,6 +457,10 @@ async function handleSubmit() {
       department_id: form.department_id || null,
       phone: form.phone || null,
       mobile: form.mobile || null,
+      user_type: form.user_type || 'internal',
+      company: form.company || null,
+      contact_person: form.contact_person || null,
+      notes: form.notes || null,
     }
     if (!isEdit.value) {
       payload.password = form.password

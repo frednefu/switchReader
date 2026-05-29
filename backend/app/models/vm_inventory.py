@@ -33,6 +33,12 @@ class VMInventory(Base):
     used_gb = Column(Float, nullable=True)
     remark = Column(String(512), default="")
 
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, comment="所属部门")
+    owner_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, comment="运维负责人")
+    claim_status = Column(String(16), default="unlinked", comment="auto/manual/unlinked")
+    claimed_by = Column(Integer, ForeignKey("users.id"), nullable=True, comment="认领人")
+    claimed_at = Column(DateTime, nullable=True, comment="认领时间")
+
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 

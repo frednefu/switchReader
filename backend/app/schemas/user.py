@@ -18,6 +18,10 @@ class UserCreate(BaseModel):
     department_id: Optional[int] = None
     phone: Optional[str] = None
     mobile: Optional[str] = None
+    user_type: str = "internal"
+    company: Optional[str] = None
+    contact_person: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
@@ -29,6 +33,10 @@ class UserUpdate(BaseModel):
     department_id: Optional[int] = None
     phone: Optional[str] = None
     mobile: Optional[str] = None
+    user_type: Optional[str] = None
+    company: Optional[str] = None
+    contact_person: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class ProfileUpdate(BaseModel):
@@ -54,6 +62,10 @@ class UserOut(BaseModel):
     department_name: Optional[str] = None
     phone: Optional[str] = None
     mobile: Optional[str] = None
+    user_type: Optional[str] = None
+    company: Optional[str] = None
+    contact_person: Optional[str] = None
+    notes: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

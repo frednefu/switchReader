@@ -128,6 +128,12 @@ const routes = [
         meta: { title: 'API 配置', admin: true },
       },
       {
+        path: 'sys/assets',
+        name: 'AssetManage',
+        component: () => import('@/views/assets/AssetManage.vue'),
+        meta: { title: '信息资产管理', admin: true },
+      },
+      {
         path: 'sys/departments',
         name: 'OrgManage',
         component: () => import('@/views/system/OrgManage.vue'),
